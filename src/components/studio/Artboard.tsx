@@ -1,8 +1,11 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useFont } from "@/context/FontContext";
 import type { PageData } from "@/data/pages";
 import { useEditorStore, type Selection } from "@/state/editorStore";
+import { useLinkingStore } from "@/state/linkingStore";
 import { useOverridesStore } from "@/state/overridesStore";
+import { useReflowStore } from "@/state/reflowStore";
+import { buildVisibleDualLayerKeys } from "@/lib/scopeTargets";
 import { ArchedHeader } from "./ArchedHeader";
 import { BismillahBox } from "./BismillahBox";
 import { FabricLines, type FabricLine } from "./FabricLines";
@@ -111,16 +114,44 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
   const scope = useEditorStore((s) => s.scope);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
-  const [selRect, setSelRect] = useState<DOMRect | null>(null);
-  // Targeted override snapshot: only re-measure when the selected/hovered keys' overrides change.
-  const selOverride = useOverridesStore((s) => (selection?.key ? s.local[selection.key] : undefined));
+  const [selRects, setSelRects] = useState<Array<{ key: string; rect: DOMRect; primary: boolean }>>([]);
+  const pages = useReflowStore((s) => s.pages);
+  const distribution = useReflowStore((s) => s.distribution);
+  const linkArabic = useLinkingStore((s) => s.arabic);
+  const linkBangla = useLinkingStore((s) => s.bangla);
+  // Targeted override snapshot: re-measure when visible scoped keys' overrides change.
+  const visibleSelectionKeys = useMemo(() => {
+    if (!selection?.key) return [];
+    const layerKind = selection.layerKind;
+    const linked = layerKind === "arabic" ? linkArabic : layerKind === "bangla" ? linkBangla : false;
+    const shouldShowScopedLayerSelection =
+      editMode &&
+      selection.kind === "layer" &&
+      (layerKind === "arabic" || layerKind === "bangla") &&
+      scope !== "general" &&
+      linked;
+
+    if (!shouldShowScopedLayerSelection) {
+      return selection.pageId === page.id ? [selection.key] : [];
+    }
+
+    return buildVisibleDualLayerKeys(selection.key, scope, page.id, pages, distribution);
+  }, [distribution, editMode, linkArabic, linkBangla, page.id, pages, scope, selection]);
+  const selectionOverrideSignature = useOverridesStore((s) =>
+    visibleSelectionKeys
+      .map((key) => {
+        const ov = s.local[key];
+        return `${key}:${ov?.dx ?? ""}:${ov?.dy ?? ""}:${ov?.fontPx ?? ""}:${ov?.leading ?? ""}:${ov?.tracking ?? ""}:${ov?.baseline ?? ""}:${ov?.vScale ?? ""}:${ov?.hScale ?? ""}:${ov?.textMode ?? ""}:${ov?.areaHeight ?? ""}`;
+      })
+      .join("|"),
+  );
   const hoverOverride = useOverridesStore((s) => (hover?.key ? s.local[hover.key] : undefined));
   const patchLocal = useOverridesStore((s) => s.patchLocal);
   const isTypeTool = editMode && activeTool === "type";
 
   // Scope-based selection colors
   const SCOPE_COLORS: Record<string, string> = {
-    general: "#f59e0b", page: "#06b6d4", surah: "#8b5cf6", global: "#10b981",
+    general: "#f59e0b", page: "#06b6d4", surah: "#8b5cf6", para: "#ec4899", global: "#10b981",
   };
   const selColor = SCOPE_COLORS[scope] ?? "#f59e0b";
   const showPageHighlight = editMode && selection && scope !== "general";
@@ -156,9 +187,16 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
       // Divide by zoom to account for CSS transform scale on the board
       return new DOMRect((r.left - br.left) / zoom, (r.top - br.top) / zoom, r.width / zoom, r.height / zoom);
     };
-    setSelRect(measure(selection?.key));
+    setSelRects(
+      visibleSelectionKeys
+        .map((key) => {
+          const rect = measure(key);
+          return rect ? { key, rect, primary: key === selection?.key } : null;
+        })
+        .filter((item): item is { key: string; rect: DOMRect; primary: boolean } => item !== null),
+    );
     setHoverRect(measure(hover?.key));
-  }, [selection, hover, page, selOverride, hoverOverride, zoom]);
+  }, [selection?.key, hover, page, visibleSelectionKeys, selectionOverrideSignature, hoverOverride, zoom]);
 
   // Read which selectable element was clicked
   const readTarget = (e: React.MouseEvent | PointerEvent): Selection | null => {
@@ -464,22 +502,25 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
         />
       )}
 
-      {/* Row selection outline */}
-      {editMode && selRect && (
+      {/* Selection outlines — single in general mode, multi when scoped layer link is ON */}
+      {editMode && selRects.map(({ key, rect, primary }) => (
         <div
+          key={`sel-${key}`}
           style={{
             position: "absolute",
-            left: selRect.x - 2,
-            top: selRect.y - 2,
-            width: selRect.width + 4,
-            height: selRect.height + 4,
-            border: `2px solid ${selColor}`,
+            left: rect.x - 2,
+            top: rect.y - 2,
+            width: rect.width + 4,
+            height: rect.height + 4,
+            border: `${primary ? 2 : 1.5}px solid ${selColor}`,
             borderRadius: 3,
-            boxShadow: `0 0 0 3px ${selColor}22, 0 0 12px ${selColor}30`,
+            background: primary ? "transparent" : `${selColor}10`,
+            boxShadow: primary ? `0 0 0 3px ${selColor}22, 0 0 12px ${selColor}30` : `0 0 0 2px ${selColor}12`,
             pointerEvents: "none",
+            opacity: primary ? 1 : 0.82,
           }}
         />
-      )}
+      ))}
 
       {/* Page/Surah/Para/Global scope highlight — full canvas border */}
       {showPageHighlight && (
@@ -504,7 +545,8 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
             }}
           >
             {scope === "page" ? "পেজ সিলেক্ট" :
-             scope === "surah" ? "সূরা সিলেক্ট" : "সব সিলেক্ট"}
+             scope === "surah" ? "সূরা সিলেক্ট" :
+             scope === "para" ? "পারা সিলেক্ট" : "সব সিলেক্ট"}
           </div>
         </div>
       )}

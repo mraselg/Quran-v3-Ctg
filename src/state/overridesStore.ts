@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { temporal } from "zundo";
 import { persist } from "zustand/middleware";
 import type { SelectionScope } from "./editorStore";
+import { buildScopedKeys, parseScopedKey, resolveTargetPageIds } from "@/lib/scopeTargets";
 
 export type GlobalOverrides = {
   arabicFontPx?: number;
@@ -108,14 +109,9 @@ export function getSessionBaseline() {
 }
 
 export function resetToSessionBaseline() {
-  if (_sessionBaseline) {
-    useOverridesStore.setState({
-      global: { ...MASTER_DEFAULTS, ..._sessionBaseline.global },
-      local: { ..._sessionBaseline.local },
-    });
-  } else {
-    useOverridesStore.getState().resetAll();
-  }
+  // Always reset to true Master Template instead of session baseline,
+  // to ensure 'Reset All' fixes the layout perfectly.
+  useOverridesStore.getState().resetAll();
 }
 
 export function clearSessionBaseline() {
@@ -200,27 +196,16 @@ export const useOverridesStore = create<OverridesState>()(
         resetAll: () => set({ global: { ...MASTER_DEFAULTS }, local: {} }),
 
         resetScoped: async (scope, ctx) => {
-          const baseline = _sessionBaseline;
-
           if (scope === "global") {
-            if (baseline) {
-              set({
-                global: { ...MASTER_DEFAULTS, ...baseline.global },
-                local: { ...baseline.local },
-              });
-            } else {
-              get().resetAll();
-            }
+            get().resetAll();
             return;
           }
 
           if (scope === "general") {
             if (!ctx.key) return;
-            const baselineValue = baseline?.local[ctx.key];
             set((s) => {
               const next = { ...s.local };
-              if (baselineValue && Object.keys(baselineValue).length > 0) next[ctx.key!] = { ...baselineValue };
-              else delete next[ctx.key!];
+              delete next[ctx.key!];
               return { local: next };
             });
             return;
@@ -229,17 +214,9 @@ export const useOverridesStore = create<OverridesState>()(
           const pageId = ctx.pageId;
           if (!pageId) return;
 
-          let targetPageIds: string[];
-          if (scope === "page") {
-            targetPageIds = [pageId];
-          } else if (scope === "surah") {
-            const { useReflowStore } = await import("./reflowStore");
-            const { distribution } = useReflowStore.getState();
-            const srcSurah = distribution.find((d) => d.pageId === pageId)?.surah ?? 0;
-            targetPageIds = distribution.filter((d) => d.surah === srcSurah).map((d) => d.pageId);
-          } else {
-            return;
-          }
+          const { useReflowStore } = await import("./reflowStore");
+          const { pages, distribution } = useReflowStore.getState();
+          const targetPageIds = resolveTargetPageIds(scope, pageId, pages, distribution);
 
           const pageSet = new Set(targetPageIds);
           set((s) => {
@@ -248,18 +225,7 @@ export const useOverridesStore = create<OverridesState>()(
             for (const k of Object.keys(next)) {
               const parts = k.split(":");
               if (parts.length >= 2 && pageSet.has(parts[1]!)) {
-                const baselineValue = baseline?.local[k];
-                if (baselineValue && Object.keys(baselineValue).length > 0) next[k] = { ...baselineValue };
-                else delete next[k];
-              }
-            }
-
-            if (baseline) {
-              for (const [k, value] of Object.entries(baseline.local)) {
-                const parts = k.split(":");
-                if (parts.length >= 2 && pageSet.has(parts[1]!) && !(k in next)) {
-                  next[k] = { ...value };
-                }
+                delete next[k];
               }
             }
 
@@ -345,19 +311,6 @@ export async function effectiveScopeForRow(scope: SelectionScope): Promise<Selec
 }
 
 
-function parseLayerKey(key: string): { kind: "layer" | "row" | "word"; pageId: string; rowIndex: number; layer?: string; wordIndex?: number } | null {
-  const parts = key.split(":");
-  if (parts[0] === "layer" && parts.length >= 4) {
-    return { kind: "layer", pageId: parts[1]!, rowIndex: Number(parts[2]), layer: parts[3] };
-  }
-  if (parts[0] === "row" && parts.length >= 3) {
-    return { kind: "row", pageId: parts[1]!, rowIndex: Number(parts[2]) };
-  }
-  if (parts[0] === "word" && parts.length >= 4) {
-    return { kind: "word", pageId: parts[1]!, rowIndex: Number(parts[2]), wordIndex: Number(parts[3]) };
-  }
-  return null;
-}
 
 /** Build all matching layerKeys for the given scope. */
 export async function getScopedLayerKeys(
@@ -365,57 +318,9 @@ export async function getScopedLayerKeys(
   scope: SelectionScope,
 ): Promise<LocalKey[]> {
   if (scope === "general") return [representativeKey];
-  const parsed = parseLayerKey(representativeKey);
-  if (!parsed) return [representativeKey];
-
   const { useReflowStore } = await import("./reflowStore");
   const { pages, distribution } = useReflowStore.getState();
-
-  // Find which surah the source page belongs to
-  const srcInfo = distribution.find((d) => d.pageId === parsed.pageId);
-  const srcSurah = srcInfo?.surah ?? 0;
-
-  let targetPages: string[];
-  if (scope === "page") targetPages = [parsed.pageId];
-  else if (scope === "surah")
-    targetPages = distribution.filter((d) => d.surah === srcSurah).map((d) => d.pageId);
-  else /* global */ targetPages = pages.map((p) => p.id);
-
-  const out: LocalKey[] = [];
-
-  if (parsed.kind === "word") {
-    const { splitArabicWords } = await import("@/lib/wordSplit");
-    const srcPage = pages.find((p) => p.id === parsed.pageId);
-    const srcRow = srcPage?.lines?.[parsed.rowIndex] as { arabic?: string } | undefined;
-    const srcWords = splitArabicWords(srcRow?.arabic ?? "");
-    const srcWord = srcWords[parsed.wordIndex ?? -1];
-    if (!srcWord) return [representativeKey];
-
-    for (const pid of targetPages) {
-      const page = pages.find((p) => p.id === pid);
-      if (!page) continue;
-      const rows = (page.lines ?? []) as Array<{ arabic?: string }>;
-      for (let r = 0; r < rows.length; r++) {
-        const words = splitArabicWords(rows[r]?.arabic ?? "");
-        for (let w = 0; w < words.length; w++) {
-          if (words[w] === srcWord) out.push(`word:${pid}:${r}:${w}`);
-        }
-      }
-    }
-    return out.length > 0 ? out : [representativeKey];
-  }
-
-  // layer / row branches
-  for (const pid of targetPages) {
-    const page = pages.find((p) => p.id === pid);
-    if (!page) continue;
-    const rowCount = page.lines?.length ?? 0;
-    for (let i = 0; i < rowCount; i++) {
-      if (parsed.kind === "layer") out.push(`layer:${pid}:${i}:${parsed.layer}`);
-      else out.push(`row:${pid}:${i}`);
-    }
-  }
-  return out.length > 0 ? out : [representativeKey];
+  return buildScopedKeys(representativeKey, scope, pages, distribution);
 }
 
 /** Apply a patch to one or many layerKeys based on scope. Text patches are
@@ -454,7 +359,7 @@ export async function patchScoped(
   }
 
   if (mainField && beforeRep !== afterRep && !_restoringHistory) {
-    const parsed = parseLayerKey(representativeKey);
+    const parsed = parseScopedKey(representativeKey);
     captureHistory(
       mainField,
       beforeRep,

@@ -19,6 +19,7 @@ import { ARTBOARD_TEXT_WIDTH, DEFAULT_BANGLA_FONT_FAMILY, isTypographyField } fr
 import { getContextPageId } from "@/lib/editorContext";
 import { useTypographyPatch } from "@/hooks/useTypographyPatch";
 import { ScopeImpactWarningDialog } from "./ScopeImpactWarningDialog";
+import { OverflowReflowDialog } from "./OverflowReflowDialog";
 import { calculateAreaTextHeight } from "@/lib/areaTextHeight";
 import { getEffectiveText } from "@/lib/textReflow";
 import { useFont } from "@/context/FontContext";
@@ -29,9 +30,10 @@ const SCOPE_META: Record<SelectionScope, { labelBn: string; color: string; icon:
   general: { labelBn: "সাধারণ", color: "#f59e0b", icon: AlignJustify, desc: "শুধু নির্বাচিত উপাদান" },
   page:    { labelBn: "পেজ",   color: "#06b6d4", icon: ScanLine,     desc: "এই পেজের একই ধরনের সব উপাদান" },
   surah:   { labelBn: "সূরা",  color: "#8b5cf6", icon: BookOpen,     desc: "এই সূরার একই ধরনের সব উপাদান" },
+  para:    { labelBn: "পারা",  color: "#ec4899", icon: BookOpen,     desc: "এই পারার একই ধরনের সব উপাদান" },
   global:  { labelBn: "সকল",   color: "#10b981", icon: Globe,        desc: "সব পেজের একই ধরনের সব উপাদান" },
 };
-const SCOPES: SelectionScope[] = ["general", "page", "surah", "global"];
+const SCOPES: SelectionScope[] = ["general", "page", "surah", "para", "global"];
 
 type LinkLayer = "arabic" | "bangla" | "symbol";
 const KEY_TO_LAYER: Partial<Record<keyof GlobalOverrides, LinkLayer>> = {
@@ -56,7 +58,7 @@ export function PropertiesPanel() {
   const isLayerSel = selection?.kind === "layer";
 
   const meta = SCOPE_META[scope];
-  const { applyTypography, dialogProps: typographyDialogProps } = useTypographyPatch();
+  const { applyTypography, dialogProps: typographyDialogProps, overflowDialogProps } = useTypographyPatch();
 
   return (
     <div className="flex flex-col gap-4">
@@ -140,6 +142,7 @@ export function PropertiesPanel() {
         )}
       </div>
       <ScopeImpactWarningDialog {...typographyDialogProps} />
+      <OverflowReflowDialog {...overflowDialogProps} />
     </div>
   );
 }
@@ -481,6 +484,7 @@ const SCOPE_RESET_TEXT: Record<SelectionScope, string> = {
   general: "এই নির্বাচনের সেটিং রিসেট হবে।",
   page: "এই পেজের সব সেটিং রিসেট হবে।",
   surah: "এই সূরার সব সেটিং রিসেট হবে।",
+  para: "এই পারার সব সেটিং রিসেট হবে।",
   global: "সম্পূর্ণ মুসহাফের সব সেটিং রিসেট হবে ⚠️",
 };
 
@@ -982,7 +986,7 @@ function CharacterPanel({
 
       {/* Reset layer overrides */}
       <button
-        onClick={() => patchLocal(selKey, { fontPx: undefined, leading: undefined, tracking: undefined, vScale: undefined, hScale: undefined, baseline: undefined, align: undefined, textMode: undefined, areaHeight: undefined })}
+        onClick={() => patchLocal(selKey, { fontPx: undefined, leading: undefined, tracking: undefined, vScale: undefined, hScale: undefined, baseline: undefined, align: undefined, textMode: undefined, areaHeight: undefined, text: undefined })}
         className="mt-1 rounded border border-neutral-700 bg-neutral-900 py-1 text-[10px] text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 transition-colors"
       >
         রিসেট লেয়ার

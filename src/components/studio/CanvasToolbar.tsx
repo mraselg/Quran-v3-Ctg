@@ -123,9 +123,10 @@ export function CanvasToolbar({
     general: { labelBn: "সাধারণ", color: "#f59e0b" },
     page:    { labelBn: "পেজ",   color: "#06b6d4" },
     surah:   { labelBn: "সূরা",  color: "#8b5cf6" },
+    para:    { labelBn: "পারা",  color: "#ec4899" },
     global:  { labelBn: "সকল",   color: "#10b981" },
   };
-  const SCOPES: SelectionScope[] = ["general", "page", "surah", "global"];
+  const SCOPES: SelectionScope[] = ["general", "page", "surah", "para", "global"];
 
   // Recent 10 entries newest-first
   const recent = [...entries].reverse().slice(0, 10);

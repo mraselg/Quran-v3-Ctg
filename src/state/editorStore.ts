@@ -10,9 +10,10 @@ export type ActiveLayerKind = "arabic" | "bangla" | "symbol" | null;
  *  general = only the single selected element (default)
  *  page    = all same-kind elements within the current page
  *  surah   = all same-kind elements within the current surah
+ *  para    = all same-kind elements within the current para
  *  global  = all same-kind elements across every page
  */
-export type SelectionScope = "general" | "page" | "surah" | "global";
+export type SelectionScope = "general" | "page" | "surah" | "para" | "global";
 
 export type Selection = {
   kind: SelectionKind;

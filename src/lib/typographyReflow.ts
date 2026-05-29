@@ -139,6 +139,24 @@ export async function patchTypographyScoped(
         console.warn("[patchTypographyScoped] reflow failed for", k, err);
       }
     }
+
+    // After reflow, trigger a page rebuild so the layout updates visually.
+    // For large scopes (surah/para/global), do a full rebuild.
+    // For page/general, rebuild only the affected pages for speed.
+    import("@/state/reflowStore").then(({ useReflowStore }) => {
+      if (eff === "general") {
+        // No rebuild needed — text didn't change row layout
+        return;
+      }
+      if (eff === "page") {
+        // Fast single-page rebuild
+        const parsed = parseLayerKey(representativeKey);
+        if (parsed?.pageId) useReflowStore.getState().rebuildPage(parsed.pageId);
+      } else {
+        // Full rebuild for surah/para/global — may affect many pages
+        useReflowStore.getState().rebuild();
+      }
+    }).catch(() => { /* ignore */ });
   });
 }
 

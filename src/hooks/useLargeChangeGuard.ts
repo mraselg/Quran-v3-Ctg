@@ -26,7 +26,7 @@ type Pending = {
 const DEFAULT_THRESHOLD = 20;
 
 /**
- * Gates an action behind a Bengali warning dialog when scope is surah/global
+ * Gates an action behind a Bengali warning dialog when scope is surah/para/global
  * OR when estimated affected rows exceed the threshold. While the action
  * runs, populates `useReflowStore.buildProgress` so the existing progress UI
  * surfaces a bar.
@@ -61,6 +61,7 @@ export function useLargeChangeGuard(): {
       const label = opts.label ?? "পরিবর্তন প্রয়োগ হচ্ছে…";
       const requiresDialog =
         opts.scope === "surah" ||
+        opts.scope === "para" ||
         opts.scope === "global" ||
         opts.estimatedRows >= threshold;
 

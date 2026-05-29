@@ -15,7 +15,7 @@ import {
   MASTER_DEFAULTS,
   type LocalOverride,
 } from "@/state/overridesStore";
-import { useEditorStore } from "@/state/editorStore";
+import { useEditorStore, type SelectionScope } from "@/state/editorStore";
 import { useReflowStore } from "@/state/reflowStore";
 import {
   splitToFit,
@@ -26,8 +26,13 @@ import {
   measureTextWidth,
   getTextAroundCursor,
   planCascade,
+  findNextValidRow,
+  findPrevValidRow,
+  getDomSlots,
   type LayerKind,
 } from "@/lib/textReflow";
+import { splitToFitArea } from "@/lib/canvasMeasure";
+import { calculateAreaTextHeight } from "@/lib/areaTextHeight";
 import { effectiveReflowScope } from "@/lib/reflowScope";
 import { splitArabicWords } from "@/lib/wordSplit";
 import { useLargeChangeGuard } from "@/hooks/useLargeChangeGuard";
@@ -92,6 +97,8 @@ const useGlobalLayoutValues = (): GlobalLayoutValues =>
     })),
   );
 
+import { UnifiedPageEditor } from "./UnifiedPageEditor";
+
 export const FabricLines = memo(function FabricLines({
   width,
   height,
@@ -104,6 +111,17 @@ export const FabricLines = memo(function FabricLines({
 }: Props & { pageId?: string }) {
   const skipSet = new Set(skipSlots ?? []);
   const editMode = useEditorStore((s) => s.editMode);
+  const activeTool = useEditorStore((s) => s.activeTool);
+  const scope = useEditorStore((s) => s.scope);
+  const selectionPageId = useEditorStore((s) => s.selection?.pageId);
+  const selectionLayer = useEditorStore((s) => s.selection?.layerKind);
+  const isTypeTool = editMode && activeTool === "type";
+
+  const isUnifiedArabicEditing = isTypeTool && scope !== "general" && selectionPageId === pageId && selectionLayer === "arabic";
+  const isUnifiedBanglaEditing = isTypeTool && scope !== "general" && selectionPageId === pageId && selectionLayer === "bangla";
+
+  const { gArabic, gBangla } = useGlobalLayoutValues();
+
 
   return (
     <div style={{ position: "relative", width, height, pointerEvents: editMode ? "auto" : "none" }}>
@@ -122,9 +140,43 @@ export const FabricLines = memo(function FabricLines({
             arabicFamily={arabicFamily}
             banglaFamily={banglaFamily}
             lines={lines}
+            hideArabic={isUnifiedArabicEditing}
+            hideBangla={isUnifiedBanglaEditing}
           />
         );
       })}
+
+      {isUnifiedArabicEditing && (
+        <UnifiedPageEditor
+          pageId={pageId}
+          layer="arabic"
+          lines={lines}
+          fontFamily={arabicFamily}
+          fontSize={gArabic}
+          width={width}
+          height={height}
+          lineHeight={Math.round(gArabic * 1.8)} // Standard Arabic line-height gap
+          align="justify"
+          baseline={layout.find(l => !skipSet.has(layout.indexOf(l)))?.ay ?? 0}
+          onClose={() => useEditorStore.getState().setActiveTool("select")}
+        />
+      )}
+
+      {isUnifiedBanglaEditing && (
+        <UnifiedPageEditor
+          pageId={pageId}
+          layer="bangla"
+          lines={lines}
+          fontFamily={banglaFamily}
+          fontSize={gBangla}
+          width={width}
+          height={height}
+          lineHeight={Math.round(gBangla * 2.0)} // Standard Bangla gap
+          align="justify"
+          baseline={layout.find(l => !skipSet.has(layout.indexOf(l)))?.by ?? 0}
+          onClose={() => useEditorStore.getState().setActiveTool("select")}
+        />
+      )}
     </div>
   );
 });
@@ -141,6 +193,8 @@ type FabricRowProps = {
   arabicFamily: string;
   banglaFamily: string;
   lines: FabricLine[];
+  hideArabic?: boolean;
+  hideBangla?: boolean;
 };
 
 const FabricRow = memo(function FabricRow({
@@ -152,6 +206,8 @@ const FabricRow = memo(function FabricRow({
   arabicFamily,
   banglaFamily,
   lines,
+  hideArabic,
+  hideBangla,
 }: FabricRowProps) {
   const rk = rowKey(pageId, i);
   const aLk = layerKey(pageId, i, "arabic");
@@ -171,7 +227,7 @@ const FabricRow = memo(function FabricRow({
   );
 
   const patchLocal = useOverridesStore((s) => s.patchLocal);
-  const patchScopedAsync = useCallback((key: string, patch: Partial<LocalOverride>, scope: "general" | "page" | "surah" | "global") => {
+  const patchScopedAsync = useCallback((key: string, patch: Partial<LocalOverride>, scope: SelectionScope) => {
     void (async () => {
       const { effectiveScope, patchScoped } = await import("@/state/overridesStore");
       const eff = await effectiveScope(scope, key.endsWith(":arabic") ? "arabic" : key.endsWith(":bangla") ? "bangla" : "symbol");
@@ -224,7 +280,7 @@ const FabricRow = memo(function FabricRow({
   const aLineHeight = Math.max(1, aLeading * aScaleFactor);
   const aAlign = (aOv?.align ?? "justify") as React.CSSProperties["textAlign"];
   const aText = aOv?.text ?? slot.arabic ?? "";
-  const isArabicEditing = isTypeTool && selectionKey === aLk && selectionPageId === pageId;
+  const isArabicEditing = !hideArabic && isTypeTool && selectionKey === aLk && selectionPageId === pageId;
   const aTextMode = aOv?.textMode ?? "point";
   const aAreaHeight = aOv?.areaHeight ?? null;
 
@@ -241,7 +297,7 @@ const FabricRow = memo(function FabricRow({
   const bLineHeight = Math.max(1, bLeading * bScaleFactor);
   const bAlign = (bOv?.align ?? "justify") as React.CSSProperties["textAlign"];
   const bText = bOv?.text ?? slot.bangla ?? "";
-  const isBanglaEditing = isTypeTool && selectionKey === bLk && selectionPageId === pageId;
+  const isBanglaEditing = !hideBangla && isTypeTool && selectionKey === bLk && selectionPageId === pageId;
   const bTextMode = bOv?.textMode ?? "point";
   const bAreaHeight = bOv?.areaHeight ?? null;
 
@@ -507,7 +563,7 @@ const FabricRow = memo(function FabricRow({
             onSave={(t) => patchLocal(aLk, { text: t })}
           />
         ) : (
-          slot.arabic && (
+          !hideArabic && slot.arabic && (
             <span
               ref={arabicSpanRef}
               style={{ display: "inline-block", width: "100%", textAlign: aAlign, textAlignLast: "justify" }}
@@ -631,7 +687,7 @@ const FabricRow = memo(function FabricRow({
             onSave={(t) => patchLocal(bLk, { text: t })}
           />
         ) : (
-          slot.bangla && (
+          !hideBangla && slot.bangla && (
             <span style={{ display: "inline-block", width: "100%", textAlign: bAlign, textAlignLast: "justify" }}>
               {bText}
             </span>
@@ -772,27 +828,45 @@ function InlineTextEditor({
     const el = ref.current;
     if (!el) return;
 
-    // Area Text mode: CSS handles wrapping inside the frame. No cascade, no
-    // splitToFit, no dialog — just persist the text.
-    if (textMode === "area") {
-      syncToStore();
-      return;
-    }
-
     // Always sync current text first (covers normal typing)
     syncToStore();
 
     const currentText = el.textContent ?? "";
-    const { fits, overflow } = splitToFit(currentText, availableWidth, fontFamily, fontSize);
+    const base = getReflowBase();
+    const localMap = useOverridesStore.getState().local;
 
-    if (overflow) {
-      const base = getReflowBase();
+    // ─── Determine how to split: Area Text (2D) or Point Text (1D) ───
+    const lkLocal = layerKey(pageId, rowIndex, layer);
+    const curTextMode = localMap[lkLocal]?.textMode ?? "point";
+    const curAreaHeight = localMap[lkLocal]?.areaHeight ?? null;
+    const curLeadingPx = localMap[lkLocal]?.leading ?? 0;
+    // leading in store is absolute px. Convert to multiplier for area utils.
+    const leadingMult = curLeadingPx > 0 ? curLeadingPx / fontSize : 1;
 
+    let fitsText: string;
+    let overflowText: string;
+
+    if (curTextMode === "area" && curAreaHeight !== null) {
+      // Area Text: split based on height constraint
+      const result = splitToFitArea(currentText, availableWidth, curAreaHeight, fontFamily, fontSize, leadingMult, layer);
+      fitsText = result.fits;
+      overflowText = result.overflow;
+    } else if (curTextMode === "area" && curAreaHeight === null) {
+      // Area Text with no fixed height — CSS handles wrapping, nothing overflows to next row
+      return;
+    } else {
+      // Point Text: split based on width constraint
+      const result = splitToFit(currentText, availableWidth, fontFamily, fontSize);
+      fitsText = result.fits;
+      overflowText = result.overflow;
+    }
+
+    if (overflowText) {
       // Link OFF for this layer → clip to current row, warn user, do not cascade.
       if (!base.cascade) {
-        lastSavedRef.current = fits;
-        useOverridesStore.getState().patchLocal(lk, { text: fits });
-        el.textContent = fits;
+        lastSavedRef.current = fitsText;
+        useOverridesStore.getState().patchLocal(lk, { text: fitsText });
+        el.textContent = fitsText;
         try {
           const sel = window.getSelection();
           if (sel) {
@@ -809,12 +883,11 @@ function InlineTextEditor({
       }
 
       // Cascade enabled — push overflow forward into subsequent rows.
-      // Snapshot pre-edit text so cancel can restore it.
       const preEditText = lastSavedRef.current;
 
-      lastSavedRef.current = fits;
-      useOverridesStore.getState().patchLocal(lk, { text: fits });
-      el.textContent = fits;
+      lastSavedRef.current = fitsText;
+      useOverridesStore.getState().patchLocal(lk, { text: fitsText });
+      el.textContent = fitsText;
       try {
         const sel = window.getSelection();
         if (sel) {
@@ -827,51 +900,45 @@ function InlineTextEditor({
         }
       } catch { /* ignore */ }
 
-      const nextRowIdx = rowIndex + 1;
-      const nextOnPage = nextRowIdx < lines.length;
-      const targetPageId = nextOnPage
-        ? pageId
-        : (() => {
-            const allPages = base.allPages;
-            const pi = allPages.findIndex((p) => p.id === pageId);
-            return pi >= 0 && pi + 1 < allPages.length ? allPages[pi + 1].id : pageId;
-          })();
-      const targetRowIdx = nextOnPage ? nextRowIdx : 0;
+      const allPages = base.allPages;
+      const pIdx = allPages.findIndex((p) => p.id === pageId);
+      const nextRef = pIdx >= 0 ? findNextValidRow(pIdx, rowIndex, allPages, layer) : null;
+      if (!nextRef) return; // nowhere to overflow to
+      
+      const targetPageId = allPages[nextRef.pi]!.id;
+      const targetRowIdx = nextRef.ri;
 
-      // Strip non-reflow props before passing into reflowFrom.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { cascade: _c, scopedPageIds: _s, ...reflowArgs } = base;
+      const { cascade: _c, scopedPageIds: _s, allPages: _a, ...reflowArgs } = base;
 
       const runReflow = () => {
         void reflowFromAsync({
           ...reflowArgs,
+          allPages: base.allPages,
+          surahPageIds: undefined, // Do not constrain text flow by surah
           startPageId: targetPageId,
           startRowIndex: targetRowIdx,
-          startOverflow: overflow,
+          startOverflow: overflowText,
+          localMap: useOverridesStore.getState().local,
         });
       };
 
-      // Dry-run to detect cross-page / cross-surah impact for confirmation.
-      const scopedPageList = base.allPages.filter((p) =>
-        base.scopedPageIds.includes(p.id),
-      );
       const plan = planCascade({
         startPageId: targetPageId,
         startRowIndex: targetRowIdx,
-        newCurrentText: "", // will be computed inside the cascade
-        pushedText: overflow,
+        newCurrentText: "",
+        pushedText: overflowText,
         layer,
-        allPages: scopedPageList,
+        allPages: base.allPages, // Dry-run across all pages
         localMap: base.localMap,
         layerKeyFn: base.layerKeyFn,
         fontFamily: base.fontFamily,
         fontSize: base.fontSize,
         availableWidth: base.availableWidth,
-        surahPageIds: base.surahPageIds,
+        surahPageIds: base.surahPageIds, // Keep to detect if it crossed surah for the warning
       });
 
       if (plan.crossesPage || plan.crossesSurah) {
-        // Avoid stacking dialogs on rapid keystrokes.
         if (useEditorStore.getState().pendingReflow) return;
         useEditorStore.getState().setPendingReflow({
           crossesPage: plan.crossesPage,
@@ -879,8 +946,6 @@ function InlineTextEditor({
           affectedPages: plan.affectedPages,
           confirm: runReflow,
           cancel: () => {
-            // Restore the start row to its pre-edit text (drop the typed
-            // overflow words) so user can decide what to do next.
             useOverridesStore.getState().patchLocal(lk, { text: preEditText });
             lastSavedRef.current = preEditText;
             if (ref.current) ref.current.textContent = preEditText;
@@ -893,16 +958,33 @@ function InlineTextEditor({
       return;
     }
 
-
     // Text fits — if there is spare room, try to back-fill from subsequent rows.
-    const currentWidth = measureTextWidth(currentText, fontFamily, fontSize);
-    if (currentWidth < availableWidth - 20) {
-      const base = getReflowBase();
-      if (!base.cascade) return; // link OFF → don't pull from other rows either
+    // Check free space using area-aware logic.
+    const hasFreeSpace = (() => {
+      if (curTextMode === "area" && curAreaHeight !== null) {
+        const h = calculateAreaTextHeight({
+          text: currentText,
+          availableWidth,
+          fontFamily,
+          fontSize,
+          leading: leadingMult,
+          layer,
+          paddingY: 4
+        });
+        const lh = fontSize * Math.max(1, leadingMult);
+        return (h + lh) <= curAreaHeight;
+      }
+      return measureTextWidth(currentText, fontFamily, fontSize) < availableWidth - 20;
+    })();
+
+    if (hasFreeSpace) {
+      if (!base.cascade) return;
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { cascade: _c, scopedPageIds: _s, ...reflowArgs } = base;
+      const { cascade: _c, scopedPageIds: _s, allPages: _a, ...reflowArgs } = base;
       backFillFrom({
         ...reflowArgs,
+        allPages: base.allPages,
+        surahPageIds: undefined, // Do not constrain backfill by surah
         startPageId: pageId,
         startRowIndex: rowIndex,
       });
@@ -964,62 +1046,57 @@ function InlineTextEditor({
       }
 
 
-      // 1. Scope → target page IDs
-      let scopePageIds: string[] | undefined;
-      if (scope === "general" || scope === "page") {
-        scopePageIds = [pageId];
-      } else if (scope === "surah") {
-        scopePageIds = base.surahPageIds ?? [pageId];
-      } else {
-        scopePageIds = undefined; // global → all
-      }
-      const scopedPageList = scopePageIds
-        ? allPages.filter((p) => scopePageIds!.includes(p.id))
-        : allPages;
+      // 1. Decouple reflow from layout scope to prevent text loss.
+      // We no longer restrict the pages for text flow (allPages is used globally).
+      const allPagesForReflow = base.allPages;
 
       // 2. Resolve insertion point
-      const nextRowIdx = rowIndex + 1;
-      const nextOnPage = nextRowIdx < lines.length;
-      let targetPageId = pageId;
-      let targetRowIdx = nextRowIdx;
-      if (!nextOnPage) {
-        if (scope === "general" || scope === "page") return;
-        const pi = allPages.findIndex((p) => p.id === pageId);
-        const next = pi >= 0 && pi + 1 < allPages.length ? allPages[pi + 1] : undefined;
-        if (!next) return;
-        targetPageId = next.id;
-        targetRowIdx = 0;
-      }
+      const pIdx = allPages.findIndex((p) => p.id === pageId);
+      const nextRef = pIdx >= 0 ? findNextValidRow(pIdx, rowIndex, allPages, layer) : null;
+      if (!nextRef) return;
+      const { pi: tPi, ri: targetRowIdx } = nextRef;
+      const targetPageId = allPages[tPi]!.id;
 
       // 3. Combined overflow (afterText + existing text at target row)
-      const tPage = allPages.find((p) => p.id === targetPageId);
-      if (!tPage) return;
+      const tPage = allPages[tPi]!;
       const tLk = layerKey(targetPageId, targetRowIdx, layer);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tRow: any = tPage.lines[targetRowIdx];
+      const tSlots = getDomSlots(tPage);
+      const tSlot = tSlots[targetRowIdx];
       const tRowFallback =
         layer === "arabic"
-          ? (tRow?.arabicLine ?? tRow?.arabic ?? "")
-          : (tRow?.banglaLine ?? tRow?.bangla ?? "");
+          ? (tSlot?.arabic ?? "")
+          : (tSlot?.bangla ?? "");
       const nextExisting = base.localMap[tLk]?.text ?? tRowFallback;
       const combined = nextExisting ? afterText + " " + nextExisting : afterText;
 
-      // 4. Dry-run cascade plan to detect cross-page / cross-surah impact
-      const { fits: nextFits, overflow: nextOverflow } = splitToFit(
-        combined,
-        availableWidth,
-        fontFamily,
-        fontSize,
-      );
+      // 4. Use layer+area-aware split for the next row
+      const localMapNow = useOverridesStore.getState().local;
+      const tTextMode = localMapNow[tLk]?.textMode ?? "point";
+      const tAreaHeight = localMapNow[tLk]?.areaHeight ?? null;
+      const tLeadingPx = localMapNow[tLk]?.leading ?? 0;
+      const tLeadingMult = tLeadingPx > 0 ? tLeadingPx / fontSize : 1;
 
+      let nextFits: string;
+      let nextOverflow: string;
+      if (tTextMode === "area" && tAreaHeight !== null) {
+        const r = splitToFitArea(combined, availableWidth, tAreaHeight, fontFamily, fontSize, tLeadingMult, layer);
+        nextFits = r.fits;
+        nextOverflow = r.overflow;
+      } else {
+        const r = splitToFit(combined, availableWidth, fontFamily, fontSize);
+        nextFits = r.fits;
+        nextOverflow = r.overflow;
+      }
+
+      // 5. Dry-run cascade plan to detect cross-page / cross-surah impact
       const plan = planCascade({
         startPageId: targetPageId,
         startRowIndex: targetRowIdx,
         newCurrentText: nextFits,
         pushedText: nextOverflow.trim(),
         layer,
-        allPages: scopedPageList,
-        localMap: base.localMap,
+        allPages: allPagesForReflow, // Dry-run across all pages globally
+        localMap: localMapNow,
         layerKeyFn: base.layerKeyFn,
         fontFamily: base.fontFamily,
         fontSize: base.fontSize,
@@ -1027,13 +1104,17 @@ function InlineTextEditor({
         surahPageIds: base.surahPageIds,
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { cascade: _c, scopedPageIds: _s, allPages: _a, ...reflowOpts } = base;
       const runReflow = () =>
         void reflowFromAsync({
-          ...base,
-          surahPageIds: scopePageIds,
+          ...reflowOpts,
+          allPages: allPagesForReflow,
+          surahPageIds: undefined, // Do not constrain by surah
           startPageId: targetPageId,
           startRowIndex: targetRowIdx,
           startOverflow: combined,
+          localMap: useOverridesStore.getState().local,
         });
 
       const cancelEdit = () => {
@@ -1043,8 +1124,10 @@ function InlineTextEditor({
         if (ref.current) ref.current.textContent = preEditText;
       };
 
-      // Crosses page or surah → show confirmation dialog
-      if (plan.crossesPage || plan.crossesSurah) {
+      // For general/page scope: apply immediately even if cross-page (user already
+      // chose this scope — a dialog would be confusing and block normal typing).
+      // For surah/global scope: show confirmation dialog for large cross-page impacts.
+      if ((plan.crossesPage || plan.crossesSurah) && scope !== "general" && scope !== "page") {
         useEditorStore.getState().setPendingReflow({
           crossesPage: plan.crossesPage,
           crossesSurah: plan.crossesSurah,
@@ -1055,8 +1138,7 @@ function InlineTextEditor({
         return;
       }
 
-      // Same-page change — apply through existing large-change guard
-      // (still gates surah/global edits or >20-row impacts).
+      // Same-page/cross-page changes — apply through existing large-change guard.
       requestGuarded({
         scope,
         estimatedRows: plan.rowUpdates.length,
@@ -1067,13 +1149,19 @@ function InlineTextEditor({
     }
 
     if (e.key === "Backspace") {
-      // Area Text: let default Backspace edit inside the frame; no row collapse.
-      if (textMode === "area") return;
       const el = ref.current;
       if (!el) return;
       const sel = window.getSelection();
       if (!sel || !sel.isCollapsed) return;
       const { before } = getTextAroundCursor(el);
+
+      // Area Text: allow normal Backspace inside frame.
+      // If cursor is at start and there's nothing before, block default (no row collapse for area).
+      if (textMode === "area") {
+        if (before.length === 0) e.preventDefault(); // can't merge area frames
+        return;
+      }
+
       if (before.length > 0) return;
 
       const base = getReflowBase();
@@ -1083,19 +1171,26 @@ function InlineTextEditor({
       }
 
       e.preventDefault();
+      const scope = useEditorStore.getState().scope;
+
+      // Decouple collapse from layout scope boundaries to prevent text getting stuck
+      const allPagesForCollapse = base.allPages;
+      const curPi = allPagesForCollapse.findIndex((p) => p.id === pageId);
+      const prevPageId = curPi > 0 ? allPagesForCollapse[curPi - 1]!.id : null;
+
       const collapse = () => {
         const result = collapseLineBreakBackward({
           startPageId: pageId,
           startRowIndex: rowIndex,
           layer,
-          allPages: base.allPages,
+          allPages: allPagesForCollapse,
           localMap: useOverridesStore.getState().local,
           patchLocal: useOverridesStore.getState().patchLocal,
           layerKeyFn: base.layerKeyFn,
           fontFamily: base.fontFamily,
           fontSize: base.fontSize,
           availableWidth: base.availableWidth,
-          surahPageIds: base.scopedPageIds,
+          surahPageIds: undefined, // Do not constrain collapse by surah boundary
         });
         if (result.merged) {
           const updated = useOverridesStore.getState().local[lk]?.text ?? "";
@@ -1104,10 +1199,13 @@ function InlineTextEditor({
         }
       };
 
-      if (rowIndex === 0) {
+      // Only show cross-page dialog for surah/para/global scope — for general/page
+      // scope, collapse directly without blocking the user.
+      if (rowIndex === 0 && prevPageId && (scope === "surah" || scope === "para" || scope === "global")) {
+        const crossesSurah = base.surahPageIds ? !base.surahPageIds.includes(prevPageId) : false;
         useEditorStore.getState().setPendingReflow({
           crossesPage: true,
-          crossesSurah: false,
+          crossesSurah,
           affectedPages: 2,
           confirm: collapse,
         });
@@ -1150,10 +1248,12 @@ function InlineTextEditor({
           borderRadius: "2px",
           background: "rgba(56,189,248,0.06)",
           caretColor: lang === "ar" ? "#f59e0b" : "#34d399",
-          whiteSpace: textMode === "area" ? "normal" : "nowrap",
-          wordBreak: textMode === "area" ? "break-word" : undefined,
-          overflowWrap: textMode === "area" ? "break-word" : undefined,
-          overflow: "hidden",
+          whiteSpace: textMode === "area" ? "pre-wrap" : "nowrap",
+          overflow: textMode === "area" ? "auto" : "hidden",
+          height: textMode === "area" ? (areaHeight ?? "auto") : undefined,
+          maxHeight: textMode === "area" ? (areaHeight ? `${areaHeight}px` : "none") : undefined,
+          wordBreak: textMode === "area" ? "break-word" : "normal",
+          overflowWrap: textMode === "area" ? "break-word" : "normal",
           cursor: "text",
           userSelect: "text",
           WebkitUserSelect: "text",

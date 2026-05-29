@@ -5,7 +5,7 @@
  *
  * Combines:
  *   - per-layer Linking switch (`useLinkingStore`)
- *   - editor scope picker (general | page | surah | global)
+ *   - editor scope picker (general | page | surah | para | global)
  *   - reflow distribution (page → surah mapping)
  *
  * Linking OFF for the layer → cascade=false (caller must NOT touch other rows).
@@ -16,6 +16,7 @@
 import type { SelectionScope } from "@/state/editorStore";
 import { useLinkingStore } from "@/state/linkingStore";
 import { useReflowStore } from "@/state/reflowStore";
+import { resolveTargetPageIds } from "@/lib/scopeTargets";
 
 export type ReflowLayer = "arabic" | "bangla";
 
@@ -42,20 +43,5 @@ export function effectiveReflowScope(
   }
 
   const { pages, distribution } = useReflowStore.getState();
-
-  if (scope === "general" || scope === "page") {
-    return { cascade: true, pageIds: [pageId], layer };
-  }
-
-  if (scope === "surah") {
-    const srcSurah = distribution.find((d) => d.pageId === pageId)?.surah ?? 0;
-    const ids =
-      srcSurah > 0
-        ? distribution.filter((d) => d.surah === srcSurah).map((d) => d.pageId)
-        : [pageId];
-    return { cascade: true, pageIds: ids, layer };
-  }
-
-  // global
-  return { cascade: true, pageIds: pages.map((p) => p.id), layer };
+  return { cascade: true, pageIds: resolveTargetPageIds(scope, pageId, pages, distribution), layer };
 }

@@ -14,6 +14,7 @@ const SCOPE_LABEL_BN: Record<SelectionScope, string> = {
   general: "সাধারণ",
   page: "পেজ",
   surah: "সূরা",
+  para: "পারা",
   global: "সকল",
 };
 

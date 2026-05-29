@@ -15,6 +15,7 @@ export type PageDistribution = {
   pageId: string;
   pageNo: number;
   surah: number;
+  para: number;
   firstVerse: number | null;
   lastVerse: number | null;
   rowCount: number;
@@ -62,6 +63,11 @@ function computeDistribution(pages: PageData[]): PageDistribution[] {
       "chapter" in p ? p.chapter : "",
     );
     const surah = surahMatch ? bnToNum(surahMatch[1]!) : 0;
+    const paraMatch = /(?:পারা\s*)?([০-৯0-9]+)/.exec(
+      "para" in p ? p.para : "",
+    );
+    const parsedPara = paraMatch ? bnToNum(paraMatch[1]!) : 0;
+    const para = parsedPara > 0 ? parsedPara : Math.min(30, Math.max(1, Math.ceil(pageNo / 20)));
     let firstVerse: number | null = null;
     let lastVerse: number | null = null;
     const ayahMatch = /আয়াত\s*([০-৯]+)–([০-৯]+)/.exec(p.footer.ayah);
@@ -69,7 +75,7 @@ function computeDistribution(pages: PageData[]): PageDistribution[] {
       firstVerse = bnToNum(ayahMatch[1]!);
       lastVerse = bnToNum(ayahMatch[2]!);
     }
-    return { pageId: id, pageNo, surah, firstVerse, lastVerse, rowCount: ayahLines.length };
+    return { pageId: id, pageNo, surah, para, firstVerse, lastVerse, rowCount: ayahLines.length };
   });
 }
 
@@ -77,14 +83,28 @@ function computeSignature(): string {
   const s = useOverridesStore.getState();
   const g = s.global;
   const parts: string[] = [
-    `g:${g.arabicFontPx ?? ""}|${g.banglaFontPx ?? ""}|${g.rowSpacing ?? ""}`,
+    // Global layout-affecting fields
+    `g:${g.arabicFontPx ?? ""}|${g.banglaFontPx ?? ""}|${g.rowSpacing ?? ""}|${g.arabicYOffset ?? ""}|${g.banglaYOffset ?? ""}`,
   ];
   const keys = Object.keys(s.local).sort();
   for (const k of keys) {
-    if (!k.startsWith("row:")) continue;
+    // Include both row-level AND layer-level overrides
+    if (!k.startsWith("row:") && !k.startsWith("layer:")) continue;
     const ov = s.local[k];
-    if (ov?.fontPx == null && ov?.scale == null) continue;
-    parts.push(`${k}:${ov.fontPx ?? ""}:${ov.scale ?? ""}`);
+    if (!ov) continue;
+    // Track all fields that affect rendered layout/height
+    const sig = [
+      ov.fontPx ?? "",
+      ov.scale ?? "",
+      ov.leading ?? "",
+      ov.tracking ?? "",
+      ov.vScale ?? "",
+      ov.hScale ?? "",
+      ov.areaHeight ?? "",
+      ov.textMode ?? "",
+    ].join(":");
+    // Only include if at least one field is set (avoid bloating signature)
+    if (sig !== ":::::::" ) parts.push(`${k}=${sig}`);
   }
   return parts.join("¦");
 }

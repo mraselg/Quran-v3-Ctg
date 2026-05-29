@@ -164,6 +164,60 @@ export function splitToFitForLayer(
 }
 
 /**
+ * Layer-aware splitter for Area Text (2D constraint).
+ * Splits text such that the wrapped lines fit within `maxHeight`.
+ * Remaining words are returned as overflow.
+ */
+export function splitToFitArea(
+  text: string,
+  availableWidth: number,
+  maxHeight: number,
+  fontFamily: string,
+  fontSize: number,
+  leading: number,
+  layer: "arabic" | "bangla",
+): { fits: string; overflow: string } {
+  if (!text.trim()) return { fits: text, overflow: "" };
+
+  const words = layer === "arabic" ? splitArabicWords(text) : text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { fits: text, overflow: "" };
+
+  const lh = Math.max(1, leading || 1);
+  const lineHeightPx = fontSize * lh;
+  const paddingY = 4; // Using 4px to match calculateAreaTextHeight default for editor padding
+
+  let lineCount = 1;
+  let currentLine = "";
+  let fitsAccumulator = "";
+
+  for (let i = 0; i < words.length; i++) {
+    const candidateLine = currentLine ? currentLine + " " + words[i] : words[i]!;
+    if (measureTextWidthCanvas(candidateLine, fontFamily, fontSize) <= availableWidth) {
+      currentLine = candidateLine;
+    } else {
+      if (currentLine === "") {
+        currentLine = words[i]!;
+      } else {
+        const predictedHeight = Math.ceil((lineCount + 1) * lineHeightPx + paddingY);
+        if (predictedHeight > maxHeight) {
+          fitsAccumulator = fitsAccumulator ? fitsAccumulator + " " + currentLine : currentLine;
+          return {
+            fits: fitsAccumulator,
+            overflow: words.slice(i).join(" ")
+          };
+        }
+        fitsAccumulator = fitsAccumulator ? fitsAccumulator + " " + currentLine : currentLine;
+        currentLine = words[i]!;
+        lineCount += 1;
+      }
+    }
+  }
+
+  fitsAccumulator = fitsAccumulator ? fitsAccumulator + " " + currentLine : currentLine;
+  return { fits: fitsAccumulator, overflow: "" };
+}
+
+/**
  * Invalidate all cached contexts (call after font size or family changes
  * that are not captured in the key, e.g. font-variant-numeric).
  */

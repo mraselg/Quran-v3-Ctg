@@ -11,22 +11,132 @@
 
 import type { FabricLine } from "@/components/studio/FabricLines";
 import type { LocalOverride } from "@/state/overridesStore";
-import { measureTextWidthCanvas, splitToFitCanvas, splitToFitForLayer } from "./canvasMeasure";
-
+import { measureTextWidthCanvas, splitToFitCanvas, splitToFitForLayer, splitToFitArea } from "./canvasMeasure";
+import { calculateAreaTextHeight } from "./areaTextHeight";
 
 export type LayerKind = "arabic" | "bangla";
 
-/** True if the given layer at (pageId, rowIndex) is in Area Text mode
- *  (independent frame — must be skipped by cascade/back-fill). */
-function isAreaLayer(
+/**
+ * Maps a raw PageData into the 9 DOM slots exactly as Artboard.tsx does.
+ */
+export function getDomSlots(page: any): FabricLine[] {
+  const slots: FabricLine[] = Array.from({ length: 9 }, () => ({}));
+  if (!page || !page.lines) return slots;
+  
+  const isOpen = page.type === "surah-open";
+  const startAt = isOpen ? 3 : 0;
+  
+  page.lines.slice(0, 9 - startAt).forEach((l: any, i: number) => {
+    const idx = startAt + i;
+    if (l.slotKind === "surah-open" && l.surahOpen) return;
+    if (l.slotKind === "blank") return;
+    slots[idx] = {
+      arabic: l.arabicLine ?? (l.blocks || []).map((b: any) => b.arabic).join(" "),
+      bangla: l.banglaLine ?? (l.blocks || []).map((b: any) => b.bangla).filter(Boolean).join(" "),
+      symbol: (l.markers ?? []).join("  "),
+    };
+  });
+  return slots;
+}
+
+export function findNextValidRow(pi: number, ri: number, pages: any[], layer: LayerKind) {
+  let searchPi = pi;
+  let searchRi = ri + 1;
+  while (searchPi < pages.length) {
+    const page = pages[searchPi];
+    if (!page) { searchPi++; searchRi = 0; continue; }
+    const slots = getDomSlots(page);
+    while (searchRi < slots.length) {
+      const slot = slots[searchRi];
+      if (layer === "arabic" && slot.arabic !== undefined) return { pi: searchPi, ri: searchRi };
+      if (layer === "bangla" && slot.bangla !== undefined) return { pi: searchPi, ri: searchRi };
+      searchRi++;
+    }
+    searchPi++;
+    searchRi = 0;
+  }
+  return null;
+}
+
+export function findPrevValidRow(pi: number, ri: number, pages: any[], layer: LayerKind) {
+  let searchPi = pi;
+  let searchRi = ri - 1;
+  while (searchPi >= 0) {
+    const page = pages[searchPi];
+    if (!page) { searchPi--; searchRi = 8; continue; }
+    const slots = getDomSlots(page);
+    if (searchRi >= slots.length) searchRi = slots.length - 1;
+    while (searchRi >= 0) {
+      const slot = slots[searchRi];
+      if (layer === "arabic" && slot.arabic !== undefined) return { pi: searchPi, ri: searchRi };
+      if (layer === "bangla" && slot.bangla !== undefined) return { pi: searchPi, ri: searchRi };
+      searchRi--;
+    }
+    searchPi--;
+    searchRi = 8;
+  }
+  return null;
+}
+
+function splitToFitAware(
+  text: string,
+  availableWidth: number,
+  fontFamily: string,
+  fontSize: number,
+  layer: LayerKind,
   pageId: string,
   rowIndex: number,
-  layer: LayerKind,
   localMap: Record<string, LocalOverride>,
-  layerKeyFn: (pid: string, ri: number, l: LayerKind) => string,
+  layerKeyFn: (pid: string, ri: number, l: LayerKind) => string
+): { fits: string; overflow: string } {
+  const lk = layerKeyFn(pageId, rowIndex, layer);
+  const textMode = localMap[lk]?.textMode ?? "point";
+  const areaHeight = localMap[lk]?.areaHeight ?? null;
+
+  if (textMode === "area" && areaHeight !== null) {
+    // leading in store is absolute px (e.g. 60 for 60px line height).
+    // Convert to multiplier for splitToFitArea.
+    const leadingPx = localMap[lk]?.leading ?? 0;
+    const leadingMult = leadingPx > 0 ? leadingPx / fontSize : 1;
+    return splitToFitArea(text, availableWidth, areaHeight, fontFamily, fontSize, leadingMult, layer);
+  }
+  
+  return splitToFitForLayer(text, availableWidth, fontFamily, fontSize, layer);
+}
+
+function hasFreeSpaceAware(
+  text: string,
+  availableWidth: number,
+  fontFamily: string,
+  fontSize: number,
+  layer: LayerKind,
+  pageId: string,
+  rowIndex: number,
+  localMap: Record<string, LocalOverride>,
+  layerKeyFn: (pid: string, ri: number, l: LayerKind) => string
 ): boolean {
   const lk = layerKeyFn(pageId, rowIndex, layer);
-  return localMap[lk]?.textMode === "area";
+  const textMode = localMap[lk]?.textMode ?? "point";
+  const areaHeight = localMap[lk]?.areaHeight ?? null;
+
+  if (textMode === "area" && areaHeight !== null) {
+    const leadingPx = localMap[lk]?.leading ?? 0;
+    const leadingMult = leadingPx > 0 ? leadingPx / fontSize : 1;
+    const h = calculateAreaTextHeight({
+      text,
+      availableWidth,
+      fontFamily,
+      fontSize,
+      leading: leadingMult,
+      layer,
+      paddingY: 4
+    });
+    const lh = fontSize * Math.max(1, leadingMult);
+    return (h + lh) <= areaHeight;
+  }
+  
+  const currentWidth = measureTextWidthCanvas(text, fontFamily, fontSize);
+  return currentWidth < availableWidth - 20;
 }
 
 /**
@@ -126,32 +236,37 @@ export function reflowFrom(opts: ReflowOptions): void {
   // Iterate through pages starting from the given position
   for (let pi = startPageIdx; pi < targetPages.length && overflow !== ""; pi++) {
     const page = targetPages[pi];
+    if (!page) continue;
+    const slots = getDomSlots(page);
     const firstRow = pi === startPageIdx ? startRowIndex : 0;
 
-    for (let ri = firstRow; ri < page.lines.length; ri++) {
-      // Skip Area-mode rows — independent frames don't participate in cascade.
-      if (
-        !(pi === startPageIdx && ri === startRowIndex) &&
-        isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)
-      ) continue;
+    for (let ri = firstRow; ri < slots.length; ri++) {
+      const slot = slots[ri];
+      if (layer === "arabic" && slot.arabic === undefined) continue;
+      if (layer === "bangla" && slot.bangla === undefined) continue;
+
       const lk = layerKeyFn(page.id, ri, layer);
       // Get existing text for this row (only for rows after the start)
       const existingText =
         pi === startPageIdx && ri === startRowIndex
           ? "" // start row already has its new text set
-          : getEffectiveText(page.id, ri, layer, page.lines, localMap, layerKeyFn);
+          : getEffectiveText(page.id, ri, layer, slots, localMap, layerKeyFn);
 
       // Combine overflow with existing text
       const combined = existingText
         ? overflow + " " + existingText
         : overflow;
 
-      const { fits, overflow: newOverflow } = splitToFitForLayer(
+      const { fits, overflow: newOverflow } = splitToFitAware(
         combined,
         availableWidth,
         fontFamily,
         fontSize,
         layer,
+        page.id,
+        ri,
+        localMap,
+        layerKeyFn
       );
 
 
@@ -194,23 +309,23 @@ export async function reflowFromAsync(opts: ReflowOptions): Promise<void> {
       }
 
       const page = targetPages[pi]!;
+      const slots = getDomSlots(page);
       const firstRow = pi === startPageIdx ? startRowIndex : 0;
 
-      for (let ri = firstRow; ri < page.lines.length; ri++) {
-        // Skip Area-mode rows — independent frames don't participate in cascade.
-        if (
-          !(pi === startPageIdx && ri === startRowIndex) &&
-          isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)
-        ) continue;
+      for (let ri = firstRow; ri < slots.length; ri++) {
+        const slot = slots[ri];
+        if (layer === "arabic" && slot.arabic === undefined) continue;
+        if (layer === "bangla" && slot.bangla === undefined) continue;
+
         const lk = layerKeyFn(page.id, ri, layer);
         const existingText =
           pi === startPageIdx && ri === startRowIndex
             ? ""
-            : getEffectiveText(page.id, ri, layer, page.lines, localMap, layerKeyFn);
+            : getEffectiveText(page.id, ri, layer, slots, localMap, layerKeyFn);
 
         const combined = existingText ? overflow + " " + existingText : overflow;
-        const { fits, overflow: newOverflow } = splitToFitForLayer(
-          combined, availableWidth, fontFamily, fontSize, layer,
+        const { fits, overflow: newOverflow } = splitToFitAware(
+          combined, availableWidth, fontFamily, fontSize, layer, page.id, ri, localMap, layerKeyFn
         );
         patchLocal(lk, { text: fits });
         overflow = newOverflow.trim();
@@ -265,15 +380,13 @@ export function backFillFrom(opts: BackFillOptions): void {
   const startPageIdx = targetPages.findIndex((p) => p.id === startPageId);
   if (startPageIdx === -1) return;
 
-  // Defensive: if start row itself is Area-mode, back-fill is a no-op.
-  if (isAreaLayer(startPageId, startRowIndex, layer, localMap, layerKeyFn)) return;
 
   // In-memory text cache so iterative writes are visible without re-reading store.
   const textCache = new Map<string, string>();
-  const readText = (pid: string, ri: number, lines: FabricLine[]): string => {
+  const readText = (pid: string, ri: number, pageObj: any): string => {
     const lk = layerKeyFn(pid, ri, layer);
     if (textCache.has(lk)) return textCache.get(lk)!;
-    return getEffectiveText(pid, ri, layer, lines, localMap, layerKeyFn);
+    return getEffectiveText(pid, ri, layer, getDomSlots(pageObj), localMap, layerKeyFn);
   };
   const writeText = (pid: string, ri: number, text: string) => {
     const lk = layerKeyFn(pid, ri, layer);
@@ -289,33 +402,16 @@ export function backFillFrom(opts: BackFillOptions): void {
 
   while (iter++ < maxIterations) {
     const curPage = targetPages[pi];
-    if (!curPage || ri >= curPage.lines.length) break;
+    if (!curPage) break;
 
-    // Find next row (same page, else next page row 0).
-    let nPi = pi;
-    let nRi = ri + 1;
-    if (nRi >= curPage.lines.length) {
-      nPi = pi + 1;
-      nRi = 0;
-    }
-    if (nPi >= targetPages.length) break;
+    // Find next valid row
+    const nextRef = findNextValidRow(pi, ri, targetPages, layer);
+    if (!nextRef) break;
+    const { pi: nPi, ri: nRi } = nextRef;
+    const nextPage = targetPages[nPi]!;
 
-    // Skip past Area-mode next rows — they don't donate text.
-    while (
-      nPi < targetPages.length &&
-      targetPages[nPi] &&
-      nRi < targetPages[nPi].lines.length &&
-      isAreaLayer(targetPages[nPi].id, nRi, layer, localMap, layerKeyFn)
-    ) {
-      nRi += 1;
-      if (nRi >= targetPages[nPi].lines.length) { nPi += 1; nRi = 0; }
-    }
-    if (nPi >= targetPages.length) break;
-    const nextPage = targetPages[nPi];
-    if (!nextPage || nextPage.lines.length === 0) break;
-
-    const curText = readText(curPage.id, ri, curPage.lines).trim();
-    const nextText = readText(nextPage.id, nRi, nextPage.lines).trim();
+    const curText = readText(curPage.id, ri, curPage).trim();
+    const nextText = readText(nextPage.id, nRi, nextPage).trim();
 
     if (nextText === "") {
       // Empty next row — nothing to pull; advance to it and continue collapsing.
@@ -325,12 +421,16 @@ export function backFillFrom(opts: BackFillOptions): void {
     }
 
     const combined = curText ? curText + " " + nextText : nextText;
-    const { fits, overflow } = splitToFitForLayer(
+    const { fits, overflow } = splitToFitAware(
       combined,
       availableWidth,
       fontFamily,
       fontSize,
       layer,
+      curPage.id,
+      ri,
+      localMap,
+      layerKeyFn
     );
 
 
@@ -380,29 +480,28 @@ export function collapseLineBreakBackward(opts: CollapseBackwardOptions): {
   const currentPage = targetPages[startPageIdx];
   if (!currentPage) return { merged: false, crossesPage: false };
 
-  let prevPageIdx = startPageIdx;
-  let prevRowIdx = startRowIndex - 1;
-  if (prevRowIdx < 0) {
-    prevPageIdx = startPageIdx - 1;
-    if (prevPageIdx < 0) return { merged: false, crossesPage: false };
-    prevRowIdx = (targetPages[prevPageIdx]?.lines.length ?? 0) - 1;
-  }
-  if (prevRowIdx < 0) return { merged: false, crossesPage: false };
+  const prevRef = findPrevValidRow(startPageIdx, startRowIndex, targetPages, layer);
+  if (!prevRef) return { merged: false, crossesPage: false };
+  const { pi: prevPageIdx, ri: prevRowIdx } = prevRef;
 
   const prevPage = targetPages[prevPageIdx];
   if (!prevPage) return { merged: false, crossesPage: false };
 
-  const prevText = getEffectiveText(prevPage.id, prevRowIdx, layer, prevPage.lines, localMap, layerKeyFn).trim();
-  const currentText = getEffectiveText(startPageId, startRowIndex, layer, currentPage.lines, localMap, layerKeyFn).trim();
+  const prevText = getEffectiveText(prevPage.id, prevRowIdx, layer, getDomSlots(prevPage), localMap, layerKeyFn).trim();
+  const currentText = getEffectiveText(startPageId, startRowIndex, layer, getDomSlots(currentPage), localMap, layerKeyFn).trim();
   if (!currentText) return { merged: false, crossesPage: prevPage.id !== startPageId };
 
   const combined = prevText ? `${prevText} ${currentText}` : currentText;
-  const { fits, overflow } = splitToFitForLayer(
+  const { fits, overflow } = splitToFitAware(
     combined,
     availableWidth,
     fontFamily,
     fontSize,
     layer,
+    prevPage.id,
+    prevRowIdx,
+    localMap,
+    layerKeyFn
   );
 
   patchLocal(layerKeyFn(prevPage.id, prevRowIdx, layer), { text: fits });
@@ -554,38 +653,33 @@ export function planCascade(opts: PlanCascadeOptions): CascadePlan {
   let ri = startRowIndex + 1;
 
   while (carry !== "" && pi < allPages.length) {
-    const page = allPages[pi];
-    if (!page) break;
-
-    if (ri >= page.lines.length) {
-      pi += 1;
-      ri = 0;
-      continue;
-    }
-
-    // Area-mode row: jump over it without consuming carry.
-    if (isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)) {
-      ri += 1;
-      continue;
-    }
-
-
+    const nextRef = findNextValidRow(pi, ri - 1, allPages, layer);
+    if (!nextRef) break;
+    pi = nextRef.pi;
+    ri = nextRef.ri;
+    
+    const page = allPages[pi]!;
+    const slots = getDomSlots(page);
 
     const existing = getEffectiveText(
       page.id,
       ri,
       layer,
-      page.lines,
+      slots,
       localMap,
       layerKeyFn,
     );
     const combined = existing ? carry + " " + existing : carry;
-    const { fits, overflow } = splitToFitForLayer(
+    const { fits, overflow } = splitToFitAware(
       combined,
       availableWidth,
       fontFamily,
       fontSize,
       layer,
+      page.id,
+      ri,
+      localMap,
+      layerKeyFn
     );
 
 
@@ -690,12 +784,16 @@ export function reflowLayerText(opts: ReflowLayerTextOptions): ReflowLayerTextRe
     _layerKeyFn,
   );
 
-  const { fits, overflow } = splitToFitForLayer(
+  const { fits, overflow } = splitToFitAware(
     currentText,
     availableWidth,
     fontFamily,
     fontSize,
     layer,
+    pageId,
+    rowIndex,
+    localMap,
+    _layerKeyFn
   );
 
   // Link OFF — never spill into other rows.
@@ -766,8 +864,7 @@ export function reflowLayerText(opts: ReflowLayerTextOptions): ReflowLayerTextRe
   }
 
   // No overflow → try a back-fill if there is slack.
-  const currentWidth = measureTextWidthCanvas(currentText, fontFamily, fontSize);
-  if (currentWidth < availableWidth - 20) {
+  if (hasFreeSpaceAware(currentText, availableWidth, fontFamily, fontSize, layer, pageId, rowIndex, localMap, _layerKeyFn)) {
     backFillFrom({
       startPageId: pageId,
       startRowIndex: rowIndex,

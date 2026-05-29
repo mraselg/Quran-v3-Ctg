@@ -96,6 +96,7 @@ export const SCOPE_SUFFIX_BN: Record<SelectionScope, string> = {
   general: "",
   page: " (পেজ)",
   surah: " (সূরা)",
+  para: " (পারা)",
   global: " (সকল)",
 };
 
@@ -275,7 +276,7 @@ export const useHistoryStore = create<HistoryState>()(
           // Migrate legacy scope values
           const sc = e.scope as unknown as string;
           const mapped: SelectionScope =
-            sc === "row" ? "general" : sc === "para" ? "global" : (sc as SelectionScope);
+            sc === "row" ? "general" : (sc as SelectionScope);
 
           const deriveScopeLabel = (pid?: string, ri?: number) => {
             if (!pid) return "";
@@ -359,6 +360,14 @@ export function captureHistory(
         const { useReflowStore } = await import("./reflowStore");
         const surah = useReflowStore.getState().distribution.find((d) => d.pageId === pageId)?.surah;
         scopeLabel = surah ? `সূরা ${surah}` : `পেজ ${pageNum}`;
+      } catch {
+        scopeLabel = `পেজ ${pageNum}`;
+      }
+    } else if (scope === "para" && pageId) {
+      try {
+        const { useReflowStore } = await import("./reflowStore");
+        const para = useReflowStore.getState().distribution.find((d) => d.pageId === pageId)?.para;
+        scopeLabel = para ? `পারা ${para}` : `পেজ ${pageNum}`;
       } catch {
         scopeLabel = `পেজ ${pageNum}`;
       }

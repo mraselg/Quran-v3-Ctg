@@ -203,16 +203,17 @@ export function Workspace() {
       if (!sel && e.key === "ArrowLeft") { e.preventDefault(); goToPrev(); return; }
       if (!sel && e.key === "ArrowRight") { e.preventDefault(); goToNext(); return; }
 
-      // Alt+1/2/3/4 → switch editing scope
-      if (e.altKey && !e.ctrlKey && !e.metaKey && ["1","2","3","4"].includes(e.key)) {
+      // Alt+1/2/3/4/5 → switch editing scope (Alt+4 keeps previous global shortcut)
+      if (e.altKey && !e.ctrlKey && !e.metaKey && ["1","2","3","4","5"].includes(e.key)) {
         e.preventDefault();
         const map = {
           "1": { scope: "general" as const, label: "সাধারণ" },
           "2": { scope: "page"    as const, label: "পেজ" },
           "3": { scope: "surah"   as const, label: "সূরা" },
           "4": { scope: "global"  as const, label: "সকল" },
+          "5": { scope: "para"    as const, label: "পারা" },
         };
-        const pick = map[e.key as "1"|"2"|"3"|"4"];
+        const pick = map[e.key as "1"|"2"|"3"|"4"|"5"];
         useEditorStore.getState().setScope(pick.scope);
         toast.success(`এডিটিং মোড পরিবর্তন: ${pick.label}`);
         return;
