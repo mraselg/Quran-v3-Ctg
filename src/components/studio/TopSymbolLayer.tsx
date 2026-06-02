@@ -5,6 +5,28 @@ import { TAJWEED_CHAR } from "@/lib/tajweed/svgMap";
 import { useTajweedRules } from "@/context/TajweedRulesContext";
 import { useOverridesStore } from "@/state/overridesStore";
 import { useEditorStore } from "@/state/editorStore";
+import { makeSymbolOverrideKey } from "@/types/quran";
+
+import { getWordIndexForCharIndex, getCanonicalWordRef } from "@/lib/quranIndex";
+
+function getWordRefForCharIndex(pageId: string, rowIndex: number, charIndex: number, lineText: string) {
+  const wordIdx = getWordIndexForCharIndex(lineText, charIndex);
+  const canonical = getCanonicalWordRef(pageId, rowIndex, wordIdx);
+  if (canonical) {
+    return {
+      surahId: canonical.surahId,
+      ayahId: canonical.ayahId,
+      wordIndex: canonical.wordIndex,
+      charIndex: charIndex,
+    };
+  }
+  return {
+    surahId: 1,
+    ayahId: 1,
+    wordIndex: rowIndex * 100 + wordIdx,
+    charIndex: charIndex,
+  };
+}
 
 type Props = {
   arabic: string;
@@ -43,6 +65,7 @@ export function TopSymbolLayer({
   const [positions, setPositions] = useState<Array<TajweedMatch & { x: number }>>([]);
   const { isEnabled } = useTajweedRules();
   const localMap = useOverridesStore((s) => s.local);
+  const globalSubRuleDx = useOverridesStore((s) => s.globalSubRuleDx);
   const gSymbolScale = useOverridesStore((s) => s.global.symbolScale) ?? 1;
   const editMode = useEditorStore((s) => s.editMode);
 
@@ -142,39 +165,48 @@ export function TopSymbolLayer({
       style={{
         position: "absolute",
         left: 0,
-        top: -16,
+        top: 0,
         width,
         height,
         pointerEvents: "none",
         overflow: "visible",
+        direction: "rtl",
       }}
     >
       {positions.map((p, i) => {
-        const key = `symbol:${pageId}:${rowIndex}:${p.charIndex}:${p.symbol}`;
-        const ov = localMap[key];
+        // 1. Resolve logical identity
+        const logicalRef = getWordRefForCharIndex(pageId, rowIndex, p.charIndex, effectiveArabic);
+        const symbolKey = makeSymbolOverrideKey(logicalRef, String(p.symbol));
+        
+        // 2. Fetch overrides
+        const ov = localMap[symbolKey];
         const scale = (ov?.scale ?? 1) * gSymbolScale;
         const sizePx = ov?.fontPx ?? symbolH;
         const tx = ov?.dx ?? 0;
         const ty = ov?.dy ?? 0;
+        const subRuleKey = p.subRule ? `subDx:${p.symbol}:${p.subRule}` : null;
+        const subRuleDx = subRuleKey ? (globalSubRuleDx[subRuleKey] ?? 0) : 0;
+
         return (
           <span
-            key={`${p.charIndex}-${p.symbol}-${i}`}
+            key={symbolKey}
             className="tajweed-icon"
             aria-hidden="true"
             data-sel-kind="symbol"
-            data-sel-key={key}
+            data-sel-key={symbolKey}
             style={{
               position: "absolute",
-              left: p.x + tx,
-              top: ty,
-              transform: `translateX(-50%) scale(${scale})`,
-              transformOrigin: "top center",
+              right: width - p.x - tx - subRuleDx,
+              top: "50%",
+              marginTop: -ty,
+              transform: `translate(50%, -50%) scale(${scale})`,
+              transformOrigin: "center center",
               width: sizePx,
               height: sizePx,
               fontSize: sizePx,
               lineHeight: `${sizePx}px`,
               textAlign: "center",
-              color: "#ef4444", // User requested all symbols to be red
+              color: ov?.color ?? "#ef4444",
               display: "block",
               pointerEvents: editMode ? "auto" : "none",
               cursor: editMode ? "grab" : "default",

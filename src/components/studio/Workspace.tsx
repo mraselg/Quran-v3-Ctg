@@ -12,6 +12,7 @@ import { TopBar } from "./TopBar";
 import { SelectionPanel } from "./SelectionPanel";
 import { Toaster } from "@/components/ui/sonner";
 import { CrossPageReflowDialog } from "./CrossPageReflowDialog";
+import { FloatingZoomBar } from "./FloatingZoomBar";
 import { toast } from "sonner";
 import { captureSessionBaseline, useOverridesStore } from "@/state/overridesStore";
 import { useEditorStore } from "@/state/editorStore";
@@ -74,14 +75,32 @@ export function Workspace() {
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, sx: 0, sy: 0 });
 
+  const fitToPage = useCallback(() => {
+    if (!scrollRef.current) return;
+    const cw = scrollRef.current.clientWidth;
+    const ch = scrollRef.current.clientHeight;
+    // 780x1170 base size, plus 80px total vertical padding in CSS
+    const paddingX = 80;
+    const paddingY = 120;
+    const zoomW = (cw - paddingX) / 780;
+    const zoomH = (ch - paddingY) / 1170;
+    const z = Math.min(zoomW, zoomH) * 100;
+    setZoom(Math.max(25, Math.min(300, Math.floor(z))));
+  }, []);
+
+  const fitToWidth = useCallback(() => {
+    if (!scrollRef.current) return;
+    const cw = scrollRef.current.clientWidth;
+    const paddingX = 80;
+    const z = ((cw - paddingX) / 780) * 100;
+    setZoom(Math.max(25, Math.min(300, Math.floor(z))));
+  }, []);
+
   useEffect(() => setMounted(true), []);
 
   const activeId = getVisiblePageId() ?? "";
 
-  const active = useMemo(
-    () => pages.find((p) => p.id === activeId) ?? pages[0],
-    [activeId, pages],
-  );
+  const active = useMemo(() => pages.find((p) => p.id === activeId) ?? pages[0], [activeId, pages]);
 
   const activeIdx = useMemo(() => {
     const idx = pages.findIndex((p) => p.id === activeId);
@@ -114,12 +133,13 @@ export function Workspace() {
 
   const distribution = useReflowStore((s) => s.distribution);
   const totalAyat = useMemo(
-    () => distribution.reduce((acc, d) => {
-      if (d.firstVerse != null && d.lastVerse != null) {
-        return acc + (d.lastVerse - d.firstVerse + 1);
-      }
-      return acc;
-    }, 0),
+    () =>
+      distribution.reduce((acc, d) => {
+        if (d.firstVerse != null && d.lastVerse != null) {
+          return acc + (d.lastVerse - d.firstVerse + 1);
+        }
+        return acc;
+      }, 0),
     [distribution],
   );
 
@@ -161,7 +181,8 @@ export function Workspace() {
       const tag = (e.target as HTMLElement | null)?.tagName;
       const targetEl = e.target as HTMLElement | null;
       const inContentEditable = targetEl?.closest('[contenteditable="true"]') !== null;
-      const inInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || inContentEditable;
+      const inInput =
+        tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || inContentEditable;
       const mod = e.metaKey || e.ctrlKey;
 
       // Ctrl+Z / Ctrl+Shift+Z — undo/redo
@@ -191,29 +212,40 @@ export function Workspace() {
         const dx = cur.dx ?? 0;
         const dy = cur.dy ?? 0;
         const patch =
-          e.key === "ArrowLeft" ? { dx: dx - step }
-          : e.key === "ArrowRight" ? { dx: dx + step }
-          : e.key === "ArrowUp" ? { dy: dy - step }
-          : { dy: dy + step };
+          e.key === "ArrowLeft"
+            ? { dx: dx - step }
+            : e.key === "ArrowRight"
+              ? { dx: dx + step }
+              : e.key === "ArrowUp"
+                ? { dy: dy - step }
+                : { dy: dy + step };
         useOverridesStore.getState().patchLocal(sel.key, patch);
         return;
       }
 
       // ← / → page navigation (when no row is selected)
-      if (!sel && e.key === "ArrowLeft") { e.preventDefault(); goToPrev(); return; }
-      if (!sel && e.key === "ArrowRight") { e.preventDefault(); goToNext(); return; }
+      if (!sel && e.key === "ArrowLeft") {
+        e.preventDefault();
+        goToPrev();
+        return;
+      }
+      if (!sel && e.key === "ArrowRight") {
+        e.preventDefault();
+        goToNext();
+        return;
+      }
 
       // Alt+1/2/3/4/5 → switch editing scope (Alt+4 keeps previous global shortcut)
-      if (e.altKey && !e.ctrlKey && !e.metaKey && ["1","2","3","4","5"].includes(e.key)) {
+      if (e.altKey && !e.ctrlKey && !e.metaKey && ["1", "2", "3", "4", "5"].includes(e.key)) {
         e.preventDefault();
         const map = {
           "1": { scope: "general" as const, label: "সাধারণ" },
-          "2": { scope: "page"    as const, label: "পেজ" },
-          "3": { scope: "surah"   as const, label: "সূরা" },
-          "4": { scope: "global"  as const, label: "সকল" },
-          "5": { scope: "para"    as const, label: "পারা" },
+          "2": { scope: "page" as const, label: "পেজ" },
+          "3": { scope: "surah" as const, label: "সূরা" },
+          "4": { scope: "global" as const, label: "সকল" },
+          "5": { scope: "para" as const, label: "পারা" },
         };
-        const pick = map[e.key as "1"|"2"|"3"|"4"|"5"];
+        const pick = map[e.key as "1" | "2" | "3" | "4" | "5"];
         useEditorStore.getState().setScope(pick.scope);
         toast.success(`এডিটিং মোড পরিবর্তন: ${pick.label}`);
         return;
@@ -258,7 +290,7 @@ export function Workspace() {
           break;
         case "f":
           e.preventDefault();
-          setZoom(85);
+          fitToPage();
           break;
         case "[":
           e.preventDefault();
@@ -310,7 +342,7 @@ export function Workspace() {
 
     // Don't pan if clicking an interactive element, UNLESS spacebar is held
     const target = e.target as HTMLElement;
-    if (target.closest('button, input, [data-sel-key]')) {
+    if (target.closest("button, input, [data-sel-key]")) {
       if (!isSpaceDown) return;
     }
 
@@ -446,7 +478,6 @@ export function Workspace() {
               <TopBar totalPages={pages.length} totalAyat={Math.max(totalAyat, 7)} />
 
               <div className="flex flex-1 overflow-hidden">
-
                 {/* ── Left Sidebar (PageList) ── */}
                 {leftOpen && (
                   <>
@@ -461,11 +492,11 @@ export function Workspace() {
                 )}
 
                 {/* ── Main Canvas Area ── */}
-                <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
                   <CanvasToolbar
                     zoom={zoom}
                     setZoom={setZoom}
-                    pageLabel={`পেজ: ${active?.footer.pageNo ?? ""} (${active?.lines.filter(l => l.slotKind === "ayah").length ?? 9} সারি)`}
+                    pageLabel={`পেজ: ${active?.footer.pageNo ?? ""} (${active?.lines.filter((l) => l.slotKind === "ayah").length ?? 9} সারি)`}
                     onPrevPage={goToPrev}
                     onNextPage={goToNext}
                     canGoPrev={activeIdx > 0}
@@ -474,87 +505,110 @@ export function Workspace() {
                     rightOpen={rightOpen}
                     onToggleLeft={() => setLeftOpen((v) => !v)}
                     onToggleRight={() => setRightOpen((v) => !v)}
+                    onFitPage={fitToPage}
+                    onFitWidth={fitToWidth}
                   />
+                  {editMode && (
+                    <FloatingZoomBar
+                      zoom={zoom}
+                      setZoom={setZoom}
+                      onFitPage={fitToPage}
+                      onFitWidth={fitToWidth}
+                      containerRef={scrollRef}
+                    />
+                  )}
                   <div className="relative flex-1 bg-[radial-gradient(ellipse_at_top,#1c1917_0%,#0a0a0a_70%)] overflow-hidden">
-                    {stage !== "ready" || buildProgress !== null ? (
-                      <BootOverlay buildProgress={buildProgress} />
-                    ) : (
-                      <>
-                        {/* Canvas Scroll Area */}
+                    {/* Always render the canvas to prevent scroll jumping and jank */}
+                    <>
+                      {/* Canvas Scroll Area */}
+                      <div
+                        ref={scrollRef}
+                        onPointerDown={onPointerDown}
+                        onPointerMove={onPointerMove}
+                        onPointerUp={onPointerUp}
+                        className={`absolute inset-0 overflow-auto text-center ${isSpaceDown ? "cursor-grab" : ""} ${isSpaceDown && isDragging.current ? "cursor-grabbing" : ""}`}
+                        style={{ padding: "40px 0" }}
+                      >
                         <div
-                          ref={scrollRef}
-                          onPointerDown={onPointerDown}
-                          onPointerMove={onPointerMove}
-                          onPointerUp={onPointerUp}
-                          className={`absolute inset-0 overflow-auto text-center ${isSpaceDown ? 'cursor-grab' : ''} ${isSpaceDown && isDragging.current ? 'cursor-grabbing' : ''}`}
-                          style={{ padding: "40px 0" }}
+                          style={{
+                            display: "inline-block",
+                            textAlign: "left",
+                            width: 780 * (zoom / 100),
+                            height: 1170 * (zoom / 100),
+                            position: "relative",
+                            transition: "width 100ms ease-out, height 100ms ease-out",
+                          }}
                         >
-                          <div
-                            style={{
-                              display: "inline-block",
-                              textAlign: "left",
-                              width: 780 * (zoom / 100),
-                              height: 1170 * (zoom / 100),
-                              position: "relative",
-                              transition: "width 100ms ease-out, height 100ms ease-out",
-                            }}
-                          >
-                            {/* 3-page virtualization window */}
-                            {[
-                              { p: activeIdx > 0 ? pages[activeIdx - 1] : null, visible: false, k: "prev" },
-                              { p: active, visible: true, k: "active" },
-                              { p: activeIdx < pages.length - 1 ? pages[activeIdx + 1] : null, visible: false, k: "next" },
-                            ].map(({ p, visible, k }) =>
-                              p ? (
-                                <div
-                                  key={`${k}-${p.id}`}
-                                  style={{
-                                    position: "absolute",
-                                    left: 0,
-                                    top: 0,
-                                    transform: `scale(${zoom / 100})`,
-                                    transformOrigin: "top left",
-                                    transition: "transform 100ms ease-out",
-                                    visibility: visible ? "visible" : "hidden",
-                                    pointerEvents: visible ? "auto" : "none",
-                                  }}
-                                >
-                                  <Artboard page={p} zoom={zoom / 100} />
-                                </div>
-                              ) : null,
-                            )}
-                          </div>
+                          {/* 3-page virtualization window */}
+                          {[
+                            {
+                              p: activeIdx > 0 ? pages[activeIdx - 1] : null,
+                              visible: false,
+                              k: "prev",
+                            },
+                            { p: active, visible: true, k: "active" },
+                            {
+                              p: activeIdx < pages.length - 1 ? pages[activeIdx + 1] : null,
+                              visible: false,
+                              k: "next",
+                            },
+                          ].map(({ p, visible, k }) =>
+                            p ? (
+                              <div
+                                key={`${k}-${p.id}`}
+                                style={{
+                                  position: "absolute",
+                                  left: 0,
+                                  top: 0,
+                                  transform: `scale(${zoom / 100})`,
+                                  transformOrigin: "top left",
+                                  transition: "transform 100ms ease-out",
+                                  visibility: visible ? "visible" : "hidden",
+                                  pointerEvents: visible ? "auto" : "none",
+                                }}
+                              >
+                                <Artboard page={p} zoom={zoom / 100} />
+                              </div>
+                            ) : null,
+                          )}
                         </div>
+                      </div>
 
-                        {/* Fixed UI Overlays (Arrows & Page Counter) */}
-                        <div className="pointer-events-none absolute inset-0 flex items-center justify-between p-6">
-                          <button
-                            onClick={goToPrev}
-                            disabled={activeIdx <= 0}
-                            title="আগের পেজ (←)"
-                            className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-neutral-700 bg-neutral-900/80 text-neutral-400 transition-all hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-300 disabled:opacity-20 disabled:hover:bg-neutral-900/80 disabled:hover:text-neutral-400"
-                          >
-                            <ChevronLeft className="h-5 w-5" />
-                          </button>
-                          <button
-                            onClick={goToNext}
-                            disabled={activeIdx >= pages.length - 1}
-                            title="পরের পেজ (→)"
-                            className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-neutral-700 bg-neutral-900/80 text-neutral-400 transition-all hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-300 disabled:opacity-20 disabled:hover:bg-neutral-900/80 disabled:hover:text-neutral-400"
-                          >
-                            <ChevronRight className="h-5 w-5" />
-                          </button>
-                        </div>
+                      {/* Fixed UI Overlays (Arrows & Page Counter) */}
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-between p-6">
+                        <button
+                          onClick={goToPrev}
+                          disabled={activeIdx <= 0}
+                          title="আগের পেজ (←)"
+                          className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-neutral-700 bg-neutral-900/80 text-neutral-400 transition-all hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-300 disabled:opacity-20 disabled:hover:bg-neutral-900/80 disabled:hover:text-neutral-400"
+                        >
+                          <ChevronLeft className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={goToNext}
+                          disabled={activeIdx >= pages.length - 1}
+                          title="পরের পেজ (→)"
+                          className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-neutral-700 bg-neutral-900/80 text-neutral-400 transition-all hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-300 disabled:opacity-20 disabled:hover:bg-neutral-900/80 disabled:hover:text-neutral-400"
+                        >
+                          <ChevronRight className="h-5 w-5" />
+                        </button>
+                      </div>
 
-                        <div className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2">
-                          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-neutral-700 bg-neutral-900/90 px-3 py-1.5 text-xs backdrop-blur shadow-lg shadow-black/20">
-                            <span className="text-neutral-500">পেজ</span>
-                            <span className="font-bold text-amber-300">{activeIdx + 1}</span>
-                            <span className="text-neutral-600">/</span>
-                            <span className="text-neutral-400">{pages.length}</span>
-                          </div>
+                      <div className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2">
+                        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-neutral-700 bg-neutral-900/90 px-3 py-1.5 text-xs backdrop-blur shadow-lg shadow-black/20">
+                          <span className="text-neutral-500">পেজ</span>
+                          <span className="font-bold text-amber-300">{activeIdx + 1}</span>
+                          <span className="text-neutral-600">/</span>
+                          <span className="text-neutral-400">{pages.length}</span>
                         </div>
-                      </>
+                      </div>
+                    </>
+                    {(stage !== "ready" || buildProgress !== null) && (
+                      <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-neutral-950/20 backdrop-blur-sm">
+                        <div className="pointer-events-auto">
+                          <BootOverlay buildProgress={buildProgress} />
+                        </div>
+                      </div>
                     )}
                   </div>
                 </main>
@@ -571,7 +625,6 @@ export function Workspace() {
                     </div>
                   </>
                 )}
-
               </div>
 
               {/* Legacy selection pill — hidden, replaced by LayerWindow */}
@@ -608,7 +661,9 @@ function BootOverlay({ buildProgress }: { buildProgress: BuildProgress | null })
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
             <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-400" />
           </span>
-          <span className="text-xs font-bold uppercase tracking-widest text-amber-300">Studio Al-Qalam</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-amber-300">
+            Studio Al-Qalam
+          </span>
         </div>
         <p className="text-sm text-neutral-300">{label}</p>
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-neutral-800">
@@ -617,9 +672,7 @@ function BootOverlay({ buildProgress }: { buildProgress: BuildProgress | null })
             style={{ width: `${pct}%` }}
           />
         </div>
-        {pct > 0 && (
-          <p className="mt-1.5 text-right text-[10px] text-neutral-600">{pct}%</p>
-        )}
+        {pct > 0 && <p className="mt-1.5 text-right text-[10px] text-neutral-600">{pct}%</p>}
       </div>
     </div>
   );

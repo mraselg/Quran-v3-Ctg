@@ -1,21 +1,55 @@
 import { useState } from "react";
 import {
-  AlignCenter, AlignJustify, AlignLeft, AlignRight, BookOpen, Clock, Globe,
-  Link2, RotateCcw, ScanLine, Type, Move, Wand2
-} from "lucide-react";
+  SettingsIcon,
+  ClockIcon,
+  TypeIcon,
+  BookIcon,
+  MenuIcon,
+  ScanLineIcon,
+  GlobeIcon,
+  RotateIcon,
+  LinkIcon,
+  MoveIcon,
+  SlidersIcon,
+  AlignCenterIcon,
+  AlignLeftIcon,
+  AlignRightIcon,
+  AlignJustifyIcon,
+  WandIcon,
+} from "@/components/ui/icons";
+import { TopSymbolId, SubRuleDef } from "@/tajweed/fontCharMap";
 import { useEditorStore, type SelectionScope } from "@/state/editorStore";
-import { resetToSessionBaseline, useOverridesStore, type GlobalOverrides, type LocalOverride, layerKey, patchScoped, effectiveScope, effectiveScopeForRow } from "@/state/overridesStore";
+import {
+  resetToSessionBaseline,
+  useOverridesStore,
+  type GlobalOverrides,
+  type LocalOverride,
+  layerKey,
+  patchScoped,
+  effectiveScope,
+  effectiveScopeForRow,
+} from "@/state/overridesStore";
 import { useHistoryStore, relativeTime } from "@/state/historyStore";
 import { useReflowStore } from "@/state/reflowStore";
 import { useShallow } from "zustand/react/shallow";
 import { useLinkingStore } from "@/state/linkingStore";
 import { Switch } from "@/components/ui/switch";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ARABIC_FONT_PX, BANGLA_FONT_PX } from "./FabricLines";
-import { ARTBOARD_TEXT_WIDTH, DEFAULT_BANGLA_FONT_FAMILY, isTypographyField } from "@/lib/typographyReflow";
+import { useTemplateStore } from "@/state/templateStore";
+import {
+  getArtboardTextWidth,
+  DEFAULT_BANGLA_FONT_FAMILY,
+  isTypographyField,
+} from "@/lib/typographyReflow";
 import { getContextPageId } from "@/lib/editorContext";
 import { useTypographyPatch } from "@/hooks/useTypographyPatch";
 import { ScopeImpactWarningDialog } from "./ScopeImpactWarningDialog";
@@ -23,15 +57,37 @@ import { OverflowReflowDialog } from "./OverflowReflowDialog";
 import { calculateAreaTextHeight } from "@/lib/areaTextHeight";
 import { getEffectiveText } from "@/lib/textReflow";
 import { useFont } from "@/context/FontContext";
-
-
-
-const SCOPE_META: Record<SelectionScope, { labelBn: string; color: string; icon: React.ElementType; desc: string }> = {
-  general: { labelBn: "সাধারণ", color: "#f59e0b", icon: AlignJustify, desc: "শুধু নির্বাচিত উপাদান" },
-  page:    { labelBn: "পেজ",   color: "#06b6d4", icon: ScanLine,     desc: "এই পেজের একই ধরনের সব উপাদান" },
-  surah:   { labelBn: "সূরা",  color: "#8b5cf6", icon: BookOpen,     desc: "এই সূরার একই ধরনের সব উপাদান" },
-  para:    { labelBn: "পারা",  color: "#ec4899", icon: BookOpen,     desc: "এই পারার একই ধরনের সব উপাদান" },
-  global:  { labelBn: "সকল",   color: "#10b981", icon: Globe,        desc: "সব পেজের একই ধরনের সব উপাদান" },
+import { SymbolOverridePanel } from "./SymbolOverridePanel";
+import { useOptimisticSlider } from "@/hooks/useOptimisticSlider";
+const SCOPE_META: Record<
+  SelectionScope,
+  { labelBn: string; color: string; icon: React.ElementType; desc: string }
+> = {
+  general: {
+    labelBn: "সাধারণ",
+    color: "#f59e0b",
+    icon: AlignJustifyIcon,
+    desc: "শুধু নির্বাচিত উপাদান",
+  },
+  page: {
+    labelBn: "পেজ",
+    color: "#06b6d4",
+    icon: ScanLineIcon,
+    desc: "এই পেজের একই ধরনের সব উপাদান",
+  },
+  surah: {
+    labelBn: "সূরা",
+    color: "#8b5cf6",
+    icon: BookIcon,
+    desc: "এই সূরার একই ধরনের সব উপাদান",
+  },
+  para: { labelBn: "পারা", color: "#ec4899", icon: BookIcon, desc: "এই পারার একই ধরনের সব উপাদান" },
+  global: {
+    labelBn: "সকল",
+    color: "#10b981",
+    icon: GlobeIcon,
+    desc: "সব পেজের একই ধরনের সব উপাদান",
+  },
 };
 const SCOPES: SelectionScope[] = ["general", "page", "surah", "para", "global"];
 
@@ -43,7 +99,6 @@ const KEY_TO_LAYER: Partial<Record<keyof GlobalOverrides, LinkLayer>> = {
   banglaYOffset: "bangla",
   symbolYOffset: "symbol",
 };
-
 
 type Tab = "controls" | "history";
 
@@ -58,15 +113,27 @@ export function PropertiesPanel() {
   const isLayerSel = selection?.kind === "layer";
 
   const meta = SCOPE_META[scope];
-  const { applyTypography, dialogProps: typographyDialogProps, overflowDialogProps } = useTypographyPatch();
+  const {
+    applyTypography,
+    dialogProps: typographyDialogProps,
+    overflowDialogProps,
+  } = useTypographyPatch();
 
   return (
     <div className="flex flex-col gap-4">
-
       {/* ── Word Panel (per-word typography) ── */}
       {selection?.kind === "word" && (
-        <WordPanel selKey={selection.key} pageId={selection.pageId} rowIndex={selection.rowIndex} wordIndex={selection.wordIndex ?? 0} scope={scope} />
+        <WordPanel
+          selKey={selection.key}
+          pageId={selection.pageId}
+          rowIndex={selection.rowIndex}
+          wordIndex={selection.wordIndex ?? 0}
+          scope={scope}
+        />
       )}
+
+      {/* ── Symbol Panel (Feature 2) ── */}
+      {selection?.kind === "symbol" && <SymbolOverridePanel />}
 
       {/* ── Sub-Layer Movement Panel (per-row Symbol/Arabic/Bangla dy) ── */}
       {!isTypeTool && selection && (selection.kind === "row" || selection.kind === "layer") && (
@@ -74,9 +141,7 @@ export function PropertiesPanel() {
       )}
 
       {/* ── Linking Panel ── */}
-      {selection && (selection.kind === "row" || selection.kind === "layer") && (
-        <LinkingPanel />
-      )}
+      {selection && (selection.kind === "row" || selection.kind === "layer") && <LinkingPanel />}
 
       {/* ── Character & Paragraph Panel (Type Tool only) ── */}
       {isTypeTool && isLayerSel && selection && (
@@ -85,10 +150,10 @@ export function PropertiesPanel() {
       {/* ── Tabs (Controls / History) ── */}
       <div className="flex items-center gap-2 border-b border-neutral-800 pb-2">
         <TabBtn active={tab === "controls"} onClick={() => setTab("controls")} color={meta.color}>
-          ⚙ নিয়ন্ত্রণ
+          <SettingsIcon className="h-3 w-3 inline mr-1" /> নিয়ন্ত্রণ
         </TabBtn>
         <TabBtn active={tab === "history"} onClick={() => setTab("history")} color={meta.color}>
-          <Clock className="h-2.5 w-2.5 inline mr-1" />ইতিহাস
+          <ClockIcon className="h-3 w-3 inline mr-1" /> ইতিহাস
         </TabBtn>
       </div>
 
@@ -104,11 +169,18 @@ export function PropertiesPanel() {
             const SI = m.icon;
             const active = scope === s;
             return (
-              <button key={s} onClick={() => setScope(s)}
+              <button
+                key={s}
+                onClick={() => setScope(s)}
                 className="flex items-center gap-1 rounded px-2 py-1.5 text-[11px] font-semibold transition-all"
-                style={active
-                  ? { background: `${m.color}22`, border: `1px solid ${m.color}50`, color: m.color }
-                  : { background: "#171717", border: "1px solid #262626", color: "#737373" }
+                style={
+                  active
+                    ? {
+                        background: `${m.color}22`,
+                        border: `1px solid ${m.color}50`,
+                        color: m.color,
+                      }
+                    : { background: "#171717", border: "1px solid #262626", color: "#737373" }
                 }
               >
                 <SI className="h-3 w-3" />
@@ -124,10 +196,14 @@ export function PropertiesPanel() {
         <div className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-900/40 p-2 text-[10px]">
           <div className="flex items-center justify-between">
             <span className="font-bold text-neutral-400">বর্তমান নির্বাচন</span>
-            <button onClick={() => setSelection(null)} className="text-red-400 hover:text-red-300">Deselect</button>
+            <button onClick={() => setSelection(null)} className="text-red-400 hover:text-red-300">
+              Deselect
+            </button>
           </div>
           <div className="flex items-center gap-2 mt-1">
-            <span className="rounded bg-neutral-800 px-1.5 py-0.5 font-mono text-neutral-300">{selection.kind}</span>
+            <span className="rounded bg-neutral-800 px-1.5 py-0.5 font-mono text-neutral-300">
+              {selection.kind}
+            </span>
             <span className="text-amber-400 font-mono truncate">{selection.key}</span>
           </div>
         </div>
@@ -147,13 +223,26 @@ export function PropertiesPanel() {
   );
 }
 
-function TabBtn({ active, onClick, color, children }: { active: boolean; onClick: () => void; color: string; children: React.ReactNode }) {
+function TabBtn({
+  active,
+  onClick,
+  color,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  color: string;
+  children: React.ReactNode;
+}) {
   return (
-    <button onClick={onClick}
+    <button
+      onClick={onClick}
       className="flex-1 rounded-md px-3 py-1.5 text-[11px] font-semibold transition-all border"
-      style={active 
-        ? { background: `${color}15`, color, borderColor: `${color}40` } 
-        : { background: "transparent", color: "#737373", borderColor: "transparent" }}
+      style={
+        active
+          ? { background: `${color}15`, color, borderColor: `${color}40` }
+          : { background: "transparent", color: "#737373", borderColor: "transparent" }
+      }
     >
       {children}
     </button>
@@ -161,6 +250,8 @@ function TabBtn({ active, onClick, color, children }: { active: boolean; onClick
 }
 
 type TypographyApply = ReturnType<typeof useTypographyPatch>["applyTypography"];
+
+// Removed TopSymbolAdjustmentPanel
 
 function ControlsTab({
   color,
@@ -173,45 +264,74 @@ function ControlsTab({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <Group title="আরবি ফন্ট" icon={Type} color={color}>
-        <DSlider k="arabicFontPx" localField="fontPx" label="সাইজ" min={20} max={80} fallback={ARABIC_FONT_PX} color={color} applyTypography={applyTypography} />
-        <DSlider k="arabicYOffset" label="Y অফসেট" min={-30} max={30} fallback={0} color={color} applyTypography={applyTypography} />
+      <Group title="আরবি ফন্ট" icon={TypeIcon} color={color}>
+        <DSlider
+          k="arabicFontPx"
+          localField="fontPx"
+          label="সাইজ"
+          min={20}
+          max={80}
+          fallback={useTemplateStore().getActiveTemplate().typography.arabicFontPx}
+          color={color}
+          applyTypography={applyTypography}
+        />
+        <DSlider
+          k="arabicYOffset"
+          label="Y অফসেট"
+          min={-30}
+          max={30}
+          fallback={0}
+          color={color}
+          applyTypography={applyTypography}
+        />
       </Group>
 
       <div className="h-px bg-neutral-800/50" />
 
-      <Group title="বাংলা ফন্ট" icon={Type} color={color}>
-        <DSlider k="banglaFontPx" localField="fontPx" label="সাইজ" min={8} max={32} fallback={BANGLA_FONT_PX} color={color} applyTypography={applyTypography} />
-        <DSlider k="banglaYOffset" label="Y অফসেট" min={-30} max={30} fallback={0} color={color} applyTypography={applyTypography} />
+      <Group title="বাংলা ফন্ট" icon={TypeIcon} color={color}>
+        <DSlider
+          k="banglaFontPx"
+          localField="fontPx"
+          label="সাইজ"
+          min={8}
+          max={32}
+          fallback={useTemplateStore().getActiveTemplate().typography.banglaFontPx}
+          color={color}
+          applyTypography={applyTypography}
+        />
+        <DSlider
+          k="banglaYOffset"
+          label="Y অফসেট"
+          min={-30}
+          max={30}
+          fallback={0}
+          color={color}
+          applyTypography={applyTypography}
+        />
       </Group>
 
       <div className="h-px bg-neutral-800/50" />
 
-      <Group title="প্রতীক" icon={BookOpen} color={color}>
-        <DSlider k="symbolYOffset" label="Y অফসেট" min={-30} max={30} fallback={0} color={color} applyTypography={applyTypography} />
-      </Group>
-
       <div className="h-px bg-neutral-800/50" />
 
-      <Group title="ট্রান্সফর্ম" icon={Move} color={color}>
+      <Group title="ট্রান্সফর্ম" icon={MoveIcon} color={color}>
         <LocalFields color={color} />
       </Group>
 
       <div className="h-px bg-neutral-800/50" />
 
-      <Group title="ইতিহাস" icon={RotateCcw} color={color}>
+      <Group title="ইতিহাস" icon={RotateIcon} color={color}>
         <ResetGroup />
       </Group>
     </div>
   );
 }
 
-
-
 function HistoryTab() {
-  const entries = useHistoryStore(useShallow((s) => s.sessionEntries()));
+  const entries = useHistoryStore(useShallow((s) => s.entries)); // ALL entries (permanent)
   const restoreTo = useHistoryStore((s) => s.restoreTo);
   const clear = useHistoryStore((s) => s.clear);
+  const markSessionStart = useHistoryStore((s) => s.markSessionStart);
   const navigateTo = useEditorStore((s) => s.navigateTo);
   const reversed = [...entries].reverse();
   const [open, setOpen] = useState(false);
@@ -224,8 +344,12 @@ function HistoryTab() {
         </span>
         {entries.length > 0 && (
           <>
-            <button onClick={() => setOpen(true)}
-              className="text-[10px] font-medium text-red-500/60 hover:text-red-400">সব মুছুন</button>
+            <button
+              onClick={() => setOpen(true)}
+              className="text-[10px] font-medium text-red-500/60 hover:text-red-400"
+            >
+              সব মুছুন
+            </button>
             <AlertDialog open={open} onOpenChange={setOpen}>
               <AlertDialogContent>
                 <AlertDialogHeader>
@@ -236,7 +360,13 @@ function HistoryTab() {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>বাতিল</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => clear()} className="bg-red-600 hover:bg-red-700 text-white">
+                  <AlertDialogAction
+                    onClick={() => {
+                      clear();
+                      markSessionStart();
+                    }}
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                  >
                     হ্যাঁ, মুছুন
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -247,8 +377,10 @@ function HistoryTab() {
       </div>
       {reversed.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-8 text-neutral-600 text-[11px] text-center">
-          <Clock className="h-6 w-6 mb-2 opacity-30" />
-          কোনো পরিবর্তন নেই।<br/>এডিট মোডে কিছু পরিবর্তন করুন।
+          <ClockIcon className="h-6 w-6 mb-2 opacity-30" />
+          কোনো পরিবর্তন নেই।
+          <br />
+          এডিট মোডে কিছু পরিবর্তন করুন।
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
@@ -279,7 +411,10 @@ function HistoryTab() {
                 className="flex flex-col gap-1 rounded bg-neutral-900/50 p-2 group hover:bg-neutral-800 transition-colors cursor-pointer"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="rounded-sm px-1.5 py-0.5 text-[9px] font-bold" style={{ background: `${m.color}20`, color: m.color }}>
+                  <span
+                    className="rounded-sm px-1.5 py-0.5 text-[9px] font-bold"
+                    style={{ background: `${m.color}20`, color: m.color }}
+                  >
                     {m.labelBn}
                   </span>
                   <div className="flex items-center gap-1.5">
@@ -312,18 +447,41 @@ function HistoryTab() {
   );
 }
 
-function Group({ title, icon: Icon, color, children }: { title: string; icon: React.ElementType; color: string; children: React.ReactNode }) {
+export function Group({
+  title,
+  icon: Icon,
+  color,
+  children,
+}: {
+  title: string;
+  icon: React.ElementType;
+  color: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider" style={{ color }}>
-        <Icon className="h-3.5 w-3.5" />{title}
+      <div
+        className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider"
+        style={{ color }}
+      >
+        <Icon className="h-3.5 w-3.5" />
+        {title}
       </div>
       <div className="flex flex-col gap-3">{children}</div>
     </div>
   );
 }
 
-function DSlider({ k, localField, label, min, max, fallback, color, applyTypography }: {
+export function DSlider({
+  k,
+  localField,
+  label,
+  min,
+  max,
+  fallback,
+  color,
+  applyTypography,
+}: {
   k: keyof GlobalOverrides;
   localField?: keyof LocalOverride;
   label: string;
@@ -337,7 +495,6 @@ function DSlider({ k, localField, label, min, max, fallback, color, applyTypogra
   const setGlobal = useOverridesStore((s) => s.setGlobal);
   const scope = useEditorStore((s) => s.scope);
   const selection = useEditorStore((s) => s.selection);
-  const [dragging, setDragging] = useState<number | null>(null);
 
   const selKey = selection?.key ?? null;
   const localOverride = useOverridesStore((s) => (selKey ? s.local[selKey] : undefined));
@@ -351,9 +508,6 @@ function DSlider({ k, localField, label, min, max, fallback, color, applyTypogra
   const effectiveValue = isLocalScope
     ? (localValue ?? stored ?? fallback)
     : (stored ?? fallback);
-  const display = dragging ?? effectiveValue;
-
-  const isOverridden = isLocalScope ? localValue !== undefined : stored !== undefined;
 
   // Layer this slider semantically targets — drives the linking gate.
   const layerForGate: LinkLayer | null = KEY_TO_LAYER[k] ?? (selection?.layerKind as LinkLayer | undefined) ?? null;
@@ -367,7 +521,6 @@ function DSlider({ k, localField, label, min, max, fallback, color, applyTypogra
     (layerForGate === "arabic" || layerForGate === "bangla");
 
   const applyValue = (v: number) => {
-    setDragging(null);
     if (!isLocalScope) {
       setGlobal(k, v);
     } else if (isTypoLocal) {
@@ -380,8 +533,9 @@ function DSlider({ k, localField, label, min, max, fallback, color, applyTypogra
     }
   };
 
+  const { value: display, onChange, onPointerUp } = useOptimisticSlider(effectiveValue, applyValue, 300);
+
   const resetValue = () => {
-    setDragging(null);
     if (!isLocalScope) {
       setGlobal(k, undefined);
     } else if (isTypoLocal) {
@@ -393,6 +547,7 @@ function DSlider({ k, localField, label, min, max, fallback, color, applyTypogra
       })();
     }
   };
+  const isOverridden = isLocalScope ? localValue !== undefined : stored !== undefined;
 
   return (
     <div className="space-y-1.5">
@@ -400,7 +555,7 @@ function DSlider({ k, localField, label, min, max, fallback, color, applyTypogra
         <span className="flex items-center gap-1 text-[11px] font-medium text-neutral-400">
           {label}
           {isLocalScope && layerForGate && (
-            <Link2
+            <LinkIcon
               className="h-2.5 w-2.5"
               style={{ color: willFanOut ? "#a78bfa" : "#404040" }}
               aria-label={willFanOut ? "fan-out enabled" : "local only"}
@@ -408,21 +563,24 @@ function DSlider({ k, localField, label, min, max, fallback, color, applyTypogra
           )}
         </span>
         <div className="flex items-center gap-1">
+          <button onPointerDown={(e) => { e.preventDefault(); applyValue(effectiveValue - 1); }} className="w-5 h-5 flex items-center justify-center rounded bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 select-none">-</button>
           <input type="number" value={display}
-            onChange={(e) => applyValue(Number(e.target.value))}
-            className="w-12 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-right text-[11px] font-mono outline-none focus:border-amber-400"
+            onChange={(e) => onChange(Number(e.target.value))}
+            onBlur={onPointerUp}
+            className="w-10 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-center text-[11px] font-mono outline-none focus:border-amber-400"
             style={{ color: isOverridden ? color : "#737373" }} step={1} min={min} max={max} />
+          <button onPointerDown={(e) => { e.preventDefault(); applyValue(effectiveValue + 1); }} className="w-5 h-5 flex items-center justify-center rounded bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 select-none">+</button>
           {isOverridden && (
             <button onClick={resetValue} className="ml-1 text-neutral-600 hover:text-amber-400" title="Reset">
-              <RotateCcw className="h-3 w-3" />
+              <RotateIcon className="h-3 w-3" />
             </button>
           )}
         </div>
       </div>
 
       <input type="range" min={min} max={max} value={display}
-        onInput={(e) => setDragging(Number((e.target as HTMLInputElement).value))}
-        onChange={(e) => applyValue(Number((e.target as HTMLInputElement).value))}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onPointerUp={onPointerUp}
         className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
         style={{ accentColor: color, background: `linear-gradient(to right, ${color} ${((display - min) / (max - min)) * 100}%, #262626 0%)` }}
       />
@@ -430,16 +588,19 @@ function DSlider({ k, localField, label, min, max, fallback, color, applyTypogra
   );
 }
 
-
-
 function LocalFields({ color }: { color: string }) {
   const selection = useEditorStore((s) => s.selection);
   const scope = useEditorStore((s) => s.scope);
-  const local = useOverridesStore((s) => selection ? s.local[selection.key] : undefined);
+  const local = useOverridesStore((s) => (selection ? s.local[selection.key] : undefined));
   // ⚠️ All hooks MUST be called before any early return (React rules of hooks)
   const link = useLinkingStore();
 
-  if (!selection) return <div className="text-[10px] text-neutral-600 rounded bg-neutral-900/50 p-2 text-center">ট্রান্সফর্ম করার জন্য সারি নির্বাচন করুন</div>;
+  if (!selection)
+    return (
+      <div className="text-[10px] text-neutral-600 rounded bg-neutral-900/50 p-2 text-center">
+        ট্রান্সফর্ম করার জন্য সারি নির্বাচন করুন
+      </div>
+    );
 
   const layerKind = selection.layerKind ?? null;
   const willFanOut =
@@ -459,21 +620,43 @@ function LocalFields({ color }: { color: string }) {
       {(["dx", "dy"] as const).map((f) => (
         <div key={f} className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
-            <span className="flex items-center gap-1 text-[10px] font-bold uppercase text-neutral-500" style={{ color }}>
+            <span
+              className="flex items-center gap-1 text-[10px] font-bold uppercase text-neutral-500"
+              style={{ color }}
+            >
               {f === "dx" ? "X অফসেট" : "Y অফসেট"}
-              <Link2 className="h-2.5 w-2.5" style={{ color: willFanOut ? "#a78bfa" : "#404040" }} />
+              <LinkIcon
+                className="h-2.5 w-2.5"
+                style={{ color: willFanOut ? "#a78bfa" : "#404040" }}
+              />
             </span>
 
             {(local?.[f] ?? 0) !== 0 && (
-              <button onClick={() => apply({ [f]: undefined })} className="text-neutral-600 hover:text-amber-400">
-                <RotateCcw className="h-2.5 w-2.5" />
+              <button
+                onClick={() => apply({ [f]: undefined })}
+                className="text-neutral-600 hover:text-amber-400"
+              >
+                <RotateIcon className="h-2.5 w-2.5" />
               </button>
             )}
           </div>
-          <input type="number" value={local?.[f] ?? 0}
-            onChange={(e) => apply({ [f]: Number(e.target.value) || undefined })}
-            className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] outline-none focus:border-amber-400"
-            step={1} />
+          <div className="flex items-center gap-0.5 rounded border border-neutral-700 bg-neutral-900">
+            <button
+              onPointerDown={(e) => { e.preventDefault(); apply({ [f]: (local?.[f] ?? 0) - 1 }); }}
+              className="px-1.5 py-1 text-neutral-500 hover:text-neutral-200 transition-colors select-none"
+            >−</button>
+            <input
+              type="number"
+              value={local?.[f] ?? 0}
+              onChange={(e) => apply({ [f]: Number(e.target.value) || undefined })}
+              className="w-full bg-transparent text-center text-[11px] font-mono outline-none focus:text-amber-400"
+              step={1}
+            />
+            <button
+              onPointerDown={(e) => { e.preventDefault(); apply({ [f]: (local?.[f] ?? 0) + 1 }); }}
+              className="px-1.5 py-1 text-neutral-500 hover:text-neutral-200 transition-colors select-none"
+            >+</button>
+          </div>
         </div>
       ))}
     </div>
@@ -496,6 +679,16 @@ function ResetGroup() {
   const [open, setOpen] = useState(false);
 
   const doReset = () => {
+    // If general scope but no selection key, use pageId-based reset instead
+    const contextKey = selection?.key;
+    const contextPageId = getContextPageId();
+
+    if (scope === "general" && !contextKey) {
+      // Nothing selected — show a friendly message, don't reset blindly
+      setOpen(false);
+      return;
+    }
+
     setOpen(false);
     useReflowStore.setState({ buildProgress: { label: "রিসেট হচ্ছে…", pct: 50 } });
     void (async () => {
@@ -503,14 +696,14 @@ function ResetGroup() {
         resetToSessionBaseline();
       } else {
         await resetScoped(scope, {
-          key: selection?.key,
-          pageId: getContextPageId(),
+          key: contextKey,
+          pageId: contextPageId,
         });
       }
       useEditorStore.getState().setPendingReflow(null);
       rebuild();
       useOverridesStore.temporal.getState().clear();
-      useHistoryStore.getState().clear();
+      useHistoryStore.getState().markSessionStart();
       useReflowStore.setState({ buildProgress: null });
     })();
   };
@@ -518,19 +711,27 @@ function ResetGroup() {
   return (
     <div className="flex flex-col gap-2">
       <div className="grid grid-cols-2 gap-2">
-        <button onClick={() => useOverridesStore.temporal.getState().undo()}
-          className="flex items-center justify-center gap-1 rounded border border-neutral-700 bg-neutral-900 py-1.5 text-[10px] font-medium text-neutral-300 hover:bg-neutral-800">
-          <RotateCcw className="h-3 w-3" /> Undo
+        <button
+          onClick={() => useOverridesStore.temporal.getState().undo()}
+          className="flex items-center justify-center gap-1 rounded border border-neutral-700 bg-neutral-900 py-1.5 text-[10px] font-medium text-neutral-300 hover:bg-neutral-800"
+        >
+          <RotateIcon className="h-3 w-3" /> Undo
         </button>
-        <button onClick={() => useOverridesStore.temporal.getState().redo()}
-          className="flex items-center justify-center gap-1 rounded border border-neutral-700 bg-neutral-900 py-1.5 text-[10px] font-medium text-neutral-300 hover:bg-neutral-800">
-          <RotateCcw className="h-3 w-3 scale-x-[-1]" /> Redo
+        <button
+          onClick={() => useOverridesStore.temporal.getState().redo()}
+          className="flex items-center justify-center gap-1 rounded border border-neutral-700 bg-neutral-900 py-1.5 text-[10px] font-medium text-neutral-300 hover:bg-neutral-800"
+        >
+          <RotateIcon className="h-3 w-3 scale-x-[-1]" /> Redo
         </button>
       </div>
       <button
         onClick={() => setOpen(true)}
-        className="rounded border border-red-900/40 bg-red-900/10 py-1.5 text-[10px] font-bold text-red-400 hover:bg-red-900/20 mt-2">
-        সব রিসেট করুন
+        disabled={scope === "general" && !selection}
+        className="rounded border border-red-900/40 bg-red-900/10 py-1.5 text-[10px] font-bold text-red-400 hover:bg-red-900/20 mt-2 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {scope === "global"
+          ? "সম্পূর্ণ রিসেট শুরু ❗"
+          : `${SCOPE_META[scope]?.labelBn ?? scope} রিসেট করুন`}
       </button>
 
       <AlertDialog open={open} onOpenChange={setOpen}>
@@ -540,7 +741,9 @@ function ResetGroup() {
             <AlertDialogDescription>
               আপনি কি সব সেটিং রিসেট করতে চান? এই কাজটি পূর্বাবস্থায় ফেরানো যাবে না।
               <br />
-              <span className={scope === "global" ? "text-red-400 font-semibold" : "text-neutral-400"}>
+              <span
+                className={scope === "global" ? "text-red-400 font-semibold" : "text-neutral-400"}
+              >
                 {SCOPE_RESET_TEXT[scope]}
               </span>
             </AlertDialogDescription>
@@ -568,7 +771,15 @@ const SUB_META: Record<SubLayer, { label: string; icon: string; color: string }>
   bangla: { label: "বাংলা", icon: "ক", color: "#06b6d4" },
 };
 
-function SubLayerPanel({ pageId, rowIndex, scope }: { pageId: string; rowIndex: number; scope: SelectionScope }) {
+function SubLayerPanel({
+  pageId,
+  rowIndex,
+  scope,
+}: {
+  pageId: string;
+  rowIndex: number;
+  scope: SelectionScope;
+}) {
   const [active, setActive] = useState<SubLayer>("arabic");
   const link = useLinkingStore();
   const key = layerKey(pageId, rowIndex, active);
@@ -591,7 +802,7 @@ function SubLayerPanel({ pageId, rowIndex, scope }: { pageId: string; rowIndex: 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
       <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-        <Move className="h-3 w-3" /> সাব-লেয়ার মুভমেন্ট
+        <MoveIcon className="h-3 w-3" /> সাব-লেয়ার মুভমেন্ট
       </div>
 
       <div className="flex gap-1">
@@ -603,11 +814,14 @@ function SubLayerPanel({ pageId, rowIndex, scope }: { pageId: string; rowIndex: 
               key={k}
               onClick={() => setActive(k)}
               className="flex-1 rounded px-2 py-1.5 text-[11px] font-semibold transition-all border"
-              style={isActive
-                ? { background: `${m.color}22`, borderColor: `${m.color}50`, color: m.color }
-                : { background: "#171717", borderColor: "#262626", color: "#737373" }}
+              style={
+                isActive
+                  ? { background: `${m.color}22`, borderColor: `${m.color}50`, color: m.color }
+                  : { background: "#171717", borderColor: "#262626", color: "#737373" }
+              }
             >
-              <span className="mr-1">{m.icon}</span>{m.label}
+              <span className="mr-1">{m.icon}</span>
+              {m.label}
             </button>
           );
         })}
@@ -617,7 +831,11 @@ function SubLayerPanel({ pageId, rowIndex, scope }: { pageId: string; rowIndex: 
         <div className="flex items-center justify-between gap-1">
           <span className="text-[11px] font-medium text-neutral-400">
             Y অফসেট ({meta.label})
-            {link[active] && <span className="ml-1 text-emerald-400" title="লিংক চালু">🔗</span>}
+            {link[active] && (
+              <span className="ml-1 text-emerald-400" title="লিংক চালু">
+                🔗
+              </span>
+            )}
           </span>
           <div className="flex items-center gap-1">
             <input
@@ -626,17 +844,27 @@ function SubLayerPanel({ pageId, rowIndex, scope }: { pageId: string; rowIndex: 
               onChange={(e) => apply(Number(e.target.value) || undefined)}
               className="w-12 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-right text-[11px] font-mono outline-none focus:border-amber-400"
               style={{ color: dy !== 0 ? meta.color : "#737373" }}
-              step={1} min={-30} max={30}
+              step={1}
+              min={-30}
+              max={30}
             />
             {dy !== 0 && (
-              <button onClick={() => apply(undefined)} className="ml-1 text-neutral-600 hover:text-amber-400" title="Reset">
-                <RotateCcw className="h-3 w-3" />
+              <button
+                onClick={() => apply(undefined)}
+                className="ml-1 text-neutral-600 hover:text-amber-400"
+                title="Reset"
+              >
+                <RotateIcon className="h-3 w-3" />
               </button>
             )}
           </div>
         </div>
         <input
-          type="range" min={-30} max={30} step={1} value={dy}
+          type="range"
+          min={-30}
+          max={30}
+          step={1}
+          value={dy}
           onChange={(e) => apply(Number(e.target.value))}
           className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
           style={{ accentColor: meta.color }}
@@ -675,38 +903,45 @@ function LinkingPanel() {
     <div className="flex flex-col gap-2 rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
       <div className="flex flex-col gap-0.5">
         <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-violet-400">
-          <span className="flex items-center gap-1.5"><Link2 className="h-3 w-3" /> এরিয়া টেক্সট লিংক</span>
-        <button
-          onClick={() => setAll(!allOn)}
-          className="rounded border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[9px] font-bold text-violet-300 hover:bg-violet-500/20"
-        >
-          {allOn ? "সব আন-লিংক" : "সব লিংক"}
-        </button>
+          <span className="flex items-center gap-1.5">
+            <LinkIcon className="h-3 w-3" /> এরিয়া টেক্সট লিংক
+          </span>
+          <button
+            onClick={() => setAll(!allOn)}
+            className="rounded border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[9px] font-bold text-violet-300 hover:bg-violet-500/20"
+          >
+            {allOn ? "সব আন-লিংক" : "সব লিংক"}
+          </button>
         </div>
         <p className="text-[9px] text-neutral-500 leading-snug">
           InDesign Area Text: লিংক ON হলে স্কোপ অনুযায়ী ওভারফ্লো পরের সারি/পেজে যায়।
         </p>
       </div>
 
-      {([
-        ["arabic", "আরবি লিংক", arabic],
-        ["bangla", "বাংলা লিংক", bangla],
-        ["symbol", "প্রতীক লিংক", symbol],
-      ] as const).map(([k, label, on]) => {
+      {(
+        [
+          ["arabic", "আরবি লিংক", arabic],
+          ["bangla", "বাংলা লিংক", bangla],
+          ["symbol", "প্রতীক লিংক", symbol],
+        ] as const
+      ).map(([k, label, on]) => {
         const hint = layerHints[k][on ? "on" : "off"];
 
         return (
           <label
             key={k}
-            className="flex flex-col gap-1 rounded px-2 py-1.5 cursor-pointer transition-all"
+            className="flex flex-col gap-1 rounded px-2 py-2 cursor-pointer transition-all border border-neutral-800"
             style={
               on
-                ? { background: `${scopeMeta.color}10`, boxShadow: `inset 0 0 0 1px ${scopeMeta.color}55` }
-                : { background: "rgba(23,23,23,0.6)" }
+                ? { background: `${scopeMeta.color}15`, borderColor: `${scopeMeta.color}50` }
+                : { background: "rgba(23,23,23,0.8)" }
             }
           >
             <span className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-[11px] text-neutral-300">
+              <span
+                className="flex items-center gap-1.5 text-[11px] font-semibold"
+                style={{ color: on ? "#fff" : "#a3a3a3" }}
+              >
                 <span style={{ opacity: on ? 1 : 0.4 }}>{on ? "🔗" : "⛓️‍💥"}</span>
                 {label}
                 {on && (
@@ -718,13 +953,24 @@ function LinkingPanel() {
                   </span>
                 )}
               </span>
-              <Switch checked={on} onCheckedChange={(v) => setLink(k, v)} />
+              <div
+                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-neutral-700"}`}
+              >
+                <span
+                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`}
+                />
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={(e) => setLink(k, e.target.checked)}
+                  className="sr-only"
+                />
+              </div>
             </span>
-            <span className="text-[9px] text-neutral-500 pl-5">{hint}</span>
+            <span className="text-[9px] text-neutral-500 pl-6 leading-tight">{hint}</span>
           </label>
         );
       })}
-
     </div>
   );
 }
@@ -734,19 +980,35 @@ function LinkingPanel() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function NumInput({
-  label, value, onChange, unit = "pt", min, max, step = 1,
+  label,
+  value,
+  onChange,
+  unit = "pt",
+  min,
+  max,
+  step = 1,
 }: {
-  label: string; value: number; onChange: (v: number) => void;
-  unit?: string; min?: number; max?: number; step?: number;
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  unit?: string;
+  min?: number;
+  max?: number;
+  step?: number;
 }) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-[9px] text-neutral-600 uppercase tracking-wider">{label}</span>
       <div className="flex items-center gap-0.5 rounded border border-neutral-700 bg-neutral-900">
         <button
-          onMouseDown={(e) => { e.preventDefault(); onChange(Math.max(min ?? -999, value - step)); }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onChange(Math.max(min ?? -999, value - step));
+          }}
           className="px-1.5 py-1 text-neutral-500 hover:text-neutral-200 transition-colors select-none"
-        >−</button>
+        >
+          −
+        </button>
         <input
           type="number"
           value={value}
@@ -757,9 +1019,14 @@ function NumInput({
           className="w-12 bg-transparent text-center text-[11px] font-mono text-neutral-200 outline-none"
         />
         <button
-          onMouseDown={(e) => { e.preventDefault(); onChange(Math.min(max ?? 9999, value + step)); }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onChange(Math.min(max ?? 9999, value + step));
+          }}
           className="px-1.5 py-1 text-neutral-500 hover:text-neutral-200 transition-colors select-none"
-        >+</button>
+        >
+          +
+        </button>
       </div>
       {unit && <span className="text-[8px] text-neutral-700">{unit}</span>}
     </div>
@@ -782,16 +1049,16 @@ function CharacterPanel({
 
   const isArabicLayer = selKey.includes(":arabic");
   const globalFontFallback = isArabicLayer
-    ? (globalArabicFontPx ?? ARABIC_FONT_PX)
-    : (globalBanglaFontPx ?? BANGLA_FONT_PX);
+    ? (globalArabicFontPx ?? useTemplateStore().getActiveTemplate().typography.arabicFontPx)
+    : (globalBanglaFontPx ?? useTemplateStore().getActiveTemplate().typography.banglaFontPx);
 
-  const fontPx   = ov.fontPx   ?? globalFontFallback;
-  const leading  = ov.leading  ?? 0;
+  const fontPx = ov.fontPx ?? globalFontFallback;
+  const leading = ov.leading ?? 0;
   const tracking = ov.tracking ?? 0;
-  const vScale   = ov.vScale   ?? 100;
-  const hScale   = ov.hScale   ?? 100;
+  const vScale = ov.vScale ?? 100;
+  const hScale = ov.hScale ?? 100;
   const baseline = ov.baseline ?? 0;
-  const align    = ov.align    ?? "justify";
+  const align = ov.align ?? "justify";
   const textMode = (ov.textMode ?? "point") as "point" | "area";
   const areaHeight = ov.areaHeight ?? null;
   // selKey looks like "layer:<pageId>:<rowIdx>:<arabic|bangla|symbol>"
@@ -806,6 +1073,12 @@ function CharacterPanel({
   const parts = selKey.split(":");
   const pageIdFromKey = parts[1] ?? "";
   const rowIdxFromKey = Number(parts[2] ?? -1);
+
+  const handleFitToSlot = () => {
+    if (!isReflowLayer || !layerFromKey) return;
+    const slotHeight = layerFromKey === "arabic" ? Math.ceil(fontPx * 1.8) : Math.ceil(fontPx * 2);
+    patchLocal(selKey, { textMode: "area", areaHeight: slotHeight, leading: slotHeight });
+  };
 
   const handleAutoFit = () => {
     if (!isReflowLayer || !layerFromKey || !pageIdFromKey || rowIdxFromKey < 0) return;
@@ -823,7 +1096,7 @@ function CharacterPanel({
     const leadingMult = leading > 0 ? leading / fontPx : 1;
     const h = calculateAreaTextHeight({
       text,
-      availableWidth: ARTBOARD_TEXT_WIDTH,
+      availableWidth: getArtboardTextWidth(),
       fontFamily: family,
       fontSize: fontPx,
       leading: leadingMult,
@@ -833,7 +1106,6 @@ function CharacterPanel({
     });
     patchLocal(selKey, { areaHeight: h });
   };
-
 
   const set = (k: string, v: number | string) => {
     if (
@@ -848,22 +1120,21 @@ function CharacterPanel({
     patchLocal(selKey, { [k]: v } as never);
   };
 
-
   const ALIGN_OPTIONS = [
-    { value: "left",    icon: AlignLeft,    label: "বাম" },
-    { value: "center",  icon: AlignCenter,  label: "মধ্য" },
-    { value: "right",   icon: AlignRight,   label: "ডান" },
-    { value: "justify", icon: AlignJustify, label: "জাস্ট" },
+    { value: "left", icon: AlignLeftIcon, label: "বাম" },
+    { value: "center", icon: AlignCenterIcon, label: "মধ্য" },
+    { value: "right", icon: AlignRightIcon, label: "ডান" },
+    { value: "justify", icon: AlignJustifyIcon, label: "জাস্ট" },
   ] as const;
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
       {/* Header */}
       <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-sky-400">
-        <Type className="h-3 w-3" />
+        <TypeIcon className="h-3 w-3" />
         ক্যারেক্টার
         {layerFromKey && (
-          <Link2
+          <LinkIcon
             className="h-2.5 w-2.5"
             style={{ color: willFanOut ? "#a78bfa" : "#404040" }}
             aria-label={willFanOut ? "fan-out enabled" : "local only"}
@@ -873,31 +1144,71 @@ function CharacterPanel({
 
       {/* Row 1: Font size + Leading */}
       <div className="grid grid-cols-2 gap-2">
-        <NumInput label="Font Size" value={fontPx} unit="px" min={6} max={200}
-          onChange={(v) => set("fontPx", v)} />
-        <NumInput label="Leading" value={leading} unit="px" min={0} max={200}
-          onChange={(v) => set("leading", v)} />
+        <NumInput
+          label="Font Size"
+          value={fontPx}
+          unit="px"
+          min={6}
+          max={200}
+          onChange={(v) => set("fontPx", v)}
+        />
+        <NumInput
+          label="Leading"
+          value={leading}
+          unit="px"
+          min={0}
+          max={200}
+          onChange={(v) => set("leading", v)}
+        />
       </div>
 
       {/* Row 2: Tracking + Baseline */}
       <div className="grid grid-cols-2 gap-2">
-        <NumInput label="Tracking" value={tracking} unit="px" min={-100} max={200} step={0.5}
-          onChange={(v) => set("tracking", v)} />
-        <NumInput label="Baseline" value={baseline} unit="px" min={-100} max={100} step={0.5}
-          onChange={(v) => set("baseline", v)} />
+        <NumInput
+          label="Tracking"
+          value={tracking}
+          unit="px"
+          min={-100}
+          max={200}
+          step={0.5}
+          onChange={(v) => set("tracking", v)}
+        />
+        <NumInput
+          label="Baseline"
+          value={baseline}
+          unit="px"
+          min={-100}
+          max={100}
+          step={0.5}
+          onChange={(v) => set("baseline", v)}
+        />
       </div>
 
       {/* Row 3: Vertical scale + Horizontal scale */}
       <div className="grid grid-cols-2 gap-2">
-        <NumInput label="V Scale" value={vScale} unit="%" min={10} max={300}
-          onChange={(v) => set("vScale", v)} />
-        <NumInput label="H Scale" value={hScale} unit="%" min={10} max={300}
-          onChange={(v) => set("hScale", v)} />
+        <NumInput
+          label="V Scale"
+          value={vScale}
+          unit="%"
+          min={10}
+          max={300}
+          onChange={(v) => set("vScale", v)}
+        />
+        <NumInput
+          label="H Scale"
+          value={hScale}
+          unit="%"
+          min={10}
+          max={300}
+          onChange={(v) => set("hScale", v)}
+        />
       </div>
 
       {/* Paragraph Alignment */}
       <div className="flex flex-col gap-1.5">
-        <span className="text-[9px] text-neutral-600 uppercase tracking-wider">Paragraph Align</span>
+        <span className="text-[9px] text-neutral-600 uppercase tracking-wider">
+          Paragraph Align
+        </span>
         <div className="flex gap-1">
           {ALIGN_OPTIONS.map(({ value, icon: Icon, label }) => (
             <button
@@ -923,10 +1234,12 @@ function CharacterPanel({
             Text Frame Mode
           </span>
           <div className="flex gap-1">
-            {([
-              { value: "point", label: "Point", title: "Point Text — পরের সারিতে ক্যাসকেড" },
-              { value: "area",  label: "Area",  title: "Area Text — ফ্রেমে wrap, ক্যাসকেড নেই" },
-            ] as const).map((opt) => (
+            {(
+              [
+                { value: "point", label: "Point", title: "Point Text — পরের সারিতে ক্যাসকেড" },
+                { value: "area", label: "Area", title: "Area Text — ফ্রেমে wrap, ক্যাসকেড নেই" },
+              ] as const
+            ).map((opt) => (
               <button
                 key={opt.value}
                 onClick={() => patchLocal(selKey, { textMode: opt.value })}
@@ -941,12 +1254,17 @@ function CharacterPanel({
               </button>
             ))}
           </div>
+          <button
+            onClick={handleFitToSlot}
+            title="Fit to Slot: slot অনুযায়ী area height এবং leading সেট করুন"
+            className="mt-1 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-[10px] font-semibold text-sky-300 hover:bg-sky-500/20"
+          >
+            Fit to Slot
+          </button>
 
           {textMode === "area" && (
             <div className="mt-1.5 flex items-center gap-2">
-              <span className="text-[10px] text-neutral-400 flex-shrink-0">
-                Frame Height
-              </span>
+              <span className="text-[10px] text-neutral-400 flex-shrink-0">Frame Height</span>
               <input
                 type="number"
                 min={10}
@@ -967,7 +1285,7 @@ function CharacterPanel({
                 title="Auto-fit: টেক্সট অনুযায়ী উচ্চতা"
                 className="text-neutral-500 hover:text-sky-400"
               >
-                <Wand2 className="h-3 w-3" />
+                <WandIcon className="h-3 w-3" />
               </button>
               {areaHeight != null && (
                 <button
@@ -975,10 +1293,9 @@ function CharacterPanel({
                   title="Auto (row height)"
                   className="text-neutral-600 hover:text-sky-400"
                 >
-                  <RotateCcw className="h-3 w-3" />
+                  <RotateIcon className="h-3 w-3" />
                 </button>
               )}
-
             </div>
           )}
         </div>
@@ -986,7 +1303,20 @@ function CharacterPanel({
 
       {/* Reset layer overrides */}
       <button
-        onClick={() => patchLocal(selKey, { fontPx: undefined, leading: undefined, tracking: undefined, vScale: undefined, hScale: undefined, baseline: undefined, align: undefined, textMode: undefined, areaHeight: undefined, text: undefined })}
+        onClick={() =>
+          patchLocal(selKey, {
+            fontPx: undefined,
+            leading: undefined,
+            tracking: undefined,
+            vScale: undefined,
+            hScale: undefined,
+            baseline: undefined,
+            align: undefined,
+            textMode: undefined,
+            areaHeight: undefined,
+            text: undefined,
+          })
+        }
         className="mt-1 rounded border border-neutral-700 bg-neutral-900 py-1 text-[10px] text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 transition-colors"
       >
         রিসেট লেয়ার
@@ -1002,29 +1332,39 @@ import { splitArabicWords } from "@/lib/wordSplit";
 import { useLargeChangeGuard } from "@/hooks/useLargeChangeGuard";
 
 function WordPanel({
-  selKey, pageId, rowIndex, wordIndex, scope,
+  selKey,
+  pageId,
+  rowIndex,
+  wordIndex,
+  scope,
 }: {
-  selKey: string; pageId: string; rowIndex: number; wordIndex: number; scope: SelectionScope;
+  selKey: string;
+  pageId: string;
+  rowIndex: number;
+  wordIndex: number;
+  scope: SelectionScope;
 }) {
   const ov = useOverridesStore((s) => s.local[selKey]);
   const pages = useReflowStore((s) => s.pages);
   const globalArabicFontPx = useOverridesStore((s) => s.global.arabicFontPx);
   const { request, dialogProps } = useLargeChangeGuard();
 
-  const row = pages.find((p) => p.id === pageId)?.lines?.[rowIndex] as { arabic?: string } | undefined;
+  const row = pages.find((p) => p.id === pageId)?.lines?.[rowIndex] as
+    | { arabic?: string }
+    | undefined;
   const words = splitArabicWords(row?.arabic ?? "");
   const wordText = words[wordIndex] ?? "";
 
-  const fallbackFont = globalArabicFontPx ?? ARABIC_FONT_PX;
-  const fontPx   = ov?.fontPx   ?? fallbackFont;
+  const fallbackFont =
+    globalArabicFontPx ?? useTemplateStore().getActiveTemplate().typography.arabicFontPx;
+  const fontPx = ov?.fontPx ?? fallbackFont;
   const tracking = ov?.tracking ?? 0;
-  const color    = ov?.color    ?? "#111827";
+  const color = ov?.color ?? "#111827";
 
   const apply = (patch: Record<string, unknown>) => {
     // Estimate affected count for surah/global to feed the guard dialog UI.
-    const estimate = scope === "general" ? 1 : scope === "page"
-      ? words.filter((w) => w === wordText).length
-      : 50; // rough hint — actual fan-out runs inside patchScoped
+    const estimate =
+      scope === "general" ? 1 : scope === "page" ? words.filter((w) => w === wordText).length : 50; // rough hint — actual fan-out runs inside patchScoped
     request({
       scope,
       estimatedRows: estimate,
@@ -1037,7 +1377,9 @@ function WordPanel({
     <>
       <div className="flex flex-col gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
         <div className="flex items-center justify-between gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400">
-          <span className="flex items-center gap-1.5"><Type className="h-3 w-3" /> নির্বাচিত শব্দ</span>
+          <span className="flex items-center gap-1.5">
+            <TypeIcon className="h-3 w-3" /> নির্বাচিত শব্দ
+          </span>
           <span
             className="font-normal text-amber-200 truncate max-w-[60%] text-[14px]"
             style={{ fontFamily: "var(--font-arabic)" }}
@@ -1053,19 +1395,35 @@ function WordPanel({
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-neutral-400">ফন্ট সাইজ</span>
             <div className="flex items-center gap-1">
-              <input type="number" value={fontPx} min={12} max={96} step={1}
+              <input
+                type="number"
+                value={fontPx}
+                min={12}
+                max={96}
+                step={1}
                 onChange={(e) => apply({ fontPx: Number(e.target.value) })}
-                className="w-14 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-right text-[11px] font-mono outline-none focus:border-amber-400" />
+                className="w-14 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-right text-[11px] font-mono outline-none focus:border-amber-400"
+              />
               {ov?.fontPx !== undefined && (
-                <button onClick={() => apply({ fontPx: undefined })} className="text-neutral-600 hover:text-amber-400" title="Reset">
-                  <RotateCcw className="h-3 w-3" />
+                <button
+                  onClick={() => apply({ fontPx: undefined })}
+                  className="text-neutral-600 hover:text-amber-400"
+                  title="Reset"
+                >
+                  <RotateIcon className="h-3 w-3" />
                 </button>
               )}
             </div>
           </div>
-          <input type="range" min={12} max={96} step={1} value={fontPx}
+          <input
+            type="range"
+            min={12}
+            max={96}
+            step={1}
+            value={fontPx}
             onChange={(e) => apply({ fontPx: Number(e.target.value) })}
-            className="w-full accent-amber-500" />
+            className="w-full accent-amber-500"
+          />
         </div>
 
         {/* Letter spacing */}
@@ -1073,19 +1431,35 @@ function WordPanel({
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-neutral-400">Letter Spacing</span>
             <div className="flex items-center gap-1">
-              <input type="number" value={tracking} min={-2} max={8} step={0.5}
+              <input
+                type="number"
+                value={tracking}
+                min={-2}
+                max={8}
+                step={0.5}
                 onChange={(e) => apply({ tracking: Number(e.target.value) })}
-                className="w-14 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-right text-[11px] font-mono outline-none focus:border-amber-400" />
+                className="w-14 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-right text-[11px] font-mono outline-none focus:border-amber-400"
+              />
               {ov?.tracking !== undefined && (
-                <button onClick={() => apply({ tracking: undefined })} className="text-neutral-600 hover:text-amber-400" title="Reset">
-                  <RotateCcw className="h-3 w-3" />
+                <button
+                  onClick={() => apply({ tracking: undefined })}
+                  className="text-neutral-600 hover:text-amber-400"
+                  title="Reset"
+                >
+                  <RotateIcon className="h-3 w-3" />
                 </button>
               )}
             </div>
           </div>
-          <input type="range" min={-2} max={8} step={0.5} value={tracking}
+          <input
+            type="range"
+            min={-2}
+            max={8}
+            step={0.5}
+            value={tracking}
             onChange={(e) => apply({ tracking: Number(e.target.value) })}
-            className="w-full accent-amber-500" />
+            className="w-full accent-amber-500"
+          />
         </div>
 
         {/* Color */}
@@ -1093,8 +1467,12 @@ function WordPanel({
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-neutral-400">রং</span>
             {ov?.color !== undefined && (
-              <button onClick={() => apply({ color: undefined })} className="text-neutral-600 hover:text-amber-400" title="Reset">
-                <RotateCcw className="h-3 w-3" />
+              <button
+                onClick={() => apply({ color: undefined })}
+                className="text-neutral-600 hover:text-amber-400"
+                title="Reset"
+              >
+                <RotateIcon className="h-3 w-3" />
               </button>
             )}
           </div>
@@ -1119,4 +1497,3 @@ function WordPanel({
     </>
   );
 }
-

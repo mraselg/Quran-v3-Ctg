@@ -125,12 +125,16 @@ function RootShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+import { ModalProvider } from "@/context/ModalContext";
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <ModalProvider>
+        <Outlet />
+      </ModalProvider>
     </QueryClientProvider>
   );
 }

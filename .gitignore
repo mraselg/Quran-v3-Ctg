@@ -30,3 +30,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+*.zip
+
+*.zip
+dist-electron/
+release/
+node_modules/

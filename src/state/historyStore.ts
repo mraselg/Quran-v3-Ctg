@@ -41,6 +41,8 @@ export type HistoryEntry = {
    * Memory savings: ~100x smaller per entry for large projects.
    */
   patch: HistoryPatch;
+  /** Composite story commits store all row patches while remaining one history entry. */
+  patches?: HistoryPatch[];
 };
 
 /** Legacy type — kept for migration compatibility only */
@@ -123,20 +125,6 @@ export function isSilent() { return _silent > 0; }
  * Apply a single patch to the overrides store (forward direction).
  * Uses `after` value.
  */
-async function applyPatchForward(patch: HistoryPatch) {
-  const { useOverridesStore, setRestoringHistory } = await import("./overridesStore");
-  const store = useOverridesStore.getState();
-  setRestoringHistory(true);
-  try {
-    if (patch.layerKey) {
-      store.patchLocal(patch.layerKey, { [patch.field]: patch.after } as Partial<LocalOverride>);
-    } else {
-      store.setGlobal(patch.field as keyof GlobalOverrides, patch.after as GlobalOverrides[keyof GlobalOverrides]);
-    }
-  } finally {
-    setRestoringHistory(false);
-  }
-}
 
 /**
  * Apply a single patch in reverse (undo direction).
@@ -176,9 +164,19 @@ async function restoreToImpl(entries: HistoryEntry[], targetId: string) {
     // Reset to session baseline (or MASTER_DEFAULTS if no session has started yet),
     // then replay all patches up to targetIdx
     const baseline = getSessionBaseline();
+    
+    // Attempt to get dynamic defaults from template
+    let defaultGlobals = MASTER_DEFAULTS;
+    try {
+      const { useTemplateStore } = await import("./templateStore");
+      const { templateToGlobalDefaults } = await import("@/lib/templateUtils");
+      const tmpl = useTemplateStore.getState().getActiveTemplate();
+      if (tmpl) defaultGlobals = templateToGlobalDefaults(tmpl) as GlobalOverrides;
+    } catch { /* fallback to MASTER_DEFAULTS */ }
+
     if (baseline) {
       useOverridesStore.setState({
-        global: { ...MASTER_DEFAULTS, ...baseline.global },
+        global: { ...defaultGlobals, ...baseline.global },
         local: { ...baseline.local },
       });
     } else {
@@ -186,12 +184,15 @@ async function restoreToImpl(entries: HistoryEntry[], targetId: string) {
     }
     for (let i = 0; i <= targetIdx; i++) {
       const e = entries[i];
-      if (e.patch.layerKey) {
-        store.patchLocal(e.patch.layerKey, { [e.patch.field]: e.patch.after } as Partial<LocalOverride>);
-      } else {
-        const field = e.patch.field as keyof GlobalOverrides;
-        const val = e.patch.after as GlobalOverrides[keyof GlobalOverrides];
-        store.setGlobal(field, val ?? MASTER_DEFAULTS[field]);
+      const patches = e.patches?.length ? e.patches : [e.patch];
+      for (const patch of patches) {
+        if (patch.layerKey) {
+          store.patchLocal(patch.layerKey, { [patch.field]: patch.after } as Partial<LocalOverride>);
+        } else {
+          const field = patch.field as keyof GlobalOverrides;
+          const val = patch.after as GlobalOverrides[keyof GlobalOverrides];
+          store.setGlobal(field, val ?? defaultGlobals[field]);
+        }
       }
     }
   } finally {
@@ -207,6 +208,16 @@ type HistoryState = {
   push: (entry: Omit<HistoryEntry, "id" | "ts">) => void;
   /** Replay all patches up to and including entry `id`. */
   restoreTo: (id: string) => void;
+  pushStoryCommit: (entry: {
+    label: string;
+    labelBn: string;
+    scope: SelectionScope;
+    scopeLabel?: string;
+    pageId?: string;
+    rowIndex?: number;
+    layerKey?: string;
+    patches: HistoryPatch[];
+  }) => void;
   /**
    * Apply a single patch in reverse (preview-previous).
    */
@@ -243,6 +254,25 @@ export const useHistoryStore = create<HistoryState>()(
       restoreTo: (id) => {
         const { entries, sessionStartTs } = get();
         void restoreToImpl(entries.filter((e) => e.ts >= sessionStartTs), id);
+      },
+
+      pushStoryCommit: (entry) => {
+        const firstPatch = entry.patches[0];
+        if (!firstPatch) return;
+        get().push({
+          label: entry.label,
+          labelBn: entry.labelBn,
+          scope: entry.scope,
+          scopeLabel: entry.scopeLabel,
+          pageId: entry.pageId,
+          rowIndex: entry.rowIndex,
+          layerKey: entry.layerKey,
+          field: "story",
+          before: entry.patches.map((p) => p.before),
+          after: entry.patches.map((p) => p.after),
+          patch: firstPatch,
+          patches: entry.patches,
+        });
       },
 
       applyPatchReverse: (patch) => { void applyPatchReverse(patch); },

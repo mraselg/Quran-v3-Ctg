@@ -41,19 +41,14 @@ import { toast } from "sonner";
 
 
 
+import type { RowBox } from "@/lib/templateUtils";
+
 export type FabricLine = {
   arabic?: string;
   bangla?: string;
   symbol?: string;
-};
-
-export type RowBox = {
-  sy: number;
-  ay: number;
-  by: number;
-  symH: number;
-  arH: number;
-  bnH: number;
+  pronunciation?: string;
+  meaning?: string;
 };
 
 type Props = {
@@ -67,16 +62,7 @@ type Props = {
   skipSlots?: number[];
 };
 
-export const ARABIC_FONT_PX = 40;
-export const BANGLA_FONT_PX = 18;
-export const SYMBOL_FONT_PX = 28;
-
-/**
- * Baked-in baseline Y-offsets for the master Kariana template.
- */
-export const BASE_ARABIC_Y = -15;
-export const BASE_BANGLA_Y = 2;
-export const BASE_SYMBOL_Y = -2;
+import { useTemplateStore } from "@/state/templateStore";
 
 type GlobalLayoutValues = {
   gArabic: number;
@@ -86,18 +72,20 @@ type GlobalLayoutValues = {
   gSymbolY: number;
 };
 
-const useGlobalLayoutValues = (): GlobalLayoutValues =>
-  useOverridesStore(
+const useGlobalLayoutValues = (): GlobalLayoutValues => {
+  const tmpl = useTemplateStore((s) => s.getActiveTemplate());
+  return useOverridesStore(
     useShallow((s) => ({
-      gArabic: s.global.arabicFontPx ?? MASTER_DEFAULTS.arabicFontPx ?? ARABIC_FONT_PX,
-      gBangla: s.global.banglaFontPx ?? MASTER_DEFAULTS.banglaFontPx ?? BANGLA_FONT_PX,
-      gArabicY: BASE_ARABIC_Y + (s.global.arabicYOffset ?? 0),
-      gBanglaY: BASE_BANGLA_Y + (s.global.banglaYOffset ?? 0),
-      gSymbolY: BASE_SYMBOL_Y + (s.global.symbolYOffset ?? 0),
-    })),
+      gArabic: s.global.arabicFontPx ?? tmpl.typography.arabicFontPx,
+      gBangla: s.global.banglaFontPx ?? tmpl.typography.banglaFontPx,
+      gArabicY: tmpl.typography.baseArabicY + (s.global.arabicYOffset ?? 0),
+      gBanglaY: tmpl.typography.baseBanglaY + (s.global.banglaYOffset ?? 0),
+      gSymbolY: tmpl.typography.baseSymbolY + (s.global.symbolYOffset ?? 0),
+    }))
   );
+};
 
-import { UnifiedPageEditor } from "./UnifiedPageEditor";
+import { UnifiedStoryEditor } from "./UnifiedStoryEditor";
 
 export const FabricLines = memo(function FabricLines({
   width,
@@ -146,37 +134,57 @@ export const FabricLines = memo(function FabricLines({
         );
       })}
 
-      {isUnifiedArabicEditing && (
-        <UnifiedPageEditor
-          pageId={pageId}
-          layer="arabic"
-          lines={lines}
-          fontFamily={arabicFamily}
-          fontSize={gArabic}
-          width={width}
-          height={height}
-          lineHeight={Math.round(gArabic * 1.8)} // Standard Arabic line-height gap
-          align="justify"
-          baseline={layout.find(l => !skipSet.has(layout.indexOf(l)))?.ay ?? 0}
-          onClose={() => useEditorStore.getState().setActiveTool("select")}
-        />
-      )}
+      {(() => {
+        const rowSpacing = layout.length > 1 ? layout[1].sy - layout[0].sy : 120;
+        
+        // Calculate exact marginTop offset so Editor text overlaps Normal text perfectly
+        const arH = layout[0]?.arH ?? 60;
+        const arNormalLineHeight = Math.round(gArabic * 1.8);
+        const arNormalPaddingTop = Math.max(0, arH * 0.05);
+        const arMarginTop = arNormalPaddingTop + (arNormalLineHeight - rowSpacing) / 2;
 
-      {isUnifiedBanglaEditing && (
-        <UnifiedPageEditor
-          pageId={pageId}
-          layer="bangla"
-          lines={lines}
-          fontFamily={banglaFamily}
-          fontSize={gBangla}
-          width={width}
-          height={height}
-          lineHeight={Math.round(gBangla * 2.0)} // Standard Bangla gap
-          align="justify"
-          baseline={layout.find(l => !skipSet.has(layout.indexOf(l)))?.by ?? 0}
-          onClose={() => useEditorStore.getState().setActiveTool("select")}
-        />
-      )}
+        const bnNormalLineHeight = Math.round(gBangla * 2.0);
+        const bnNormalPaddingTop = 1;
+        const bnMarginTop = bnNormalPaddingTop + (bnNormalLineHeight - rowSpacing) / 2;
+
+        return (
+          <>
+            {isUnifiedArabicEditing && (
+              <UnifiedStoryEditor
+                anchorPageId={pageId}
+                scope={scope}
+                layer="arabic"
+                fontFamily={arabicFamily}
+                fontSize={gArabic}
+                width={width}
+                height={height}
+                lineHeight={rowSpacing}
+                marginTop={arMarginTop}
+                align="justify"
+                baseline={layout.find(l => !skipSet.has(layout.indexOf(l)))?.ay ?? 0}
+                onClose={() => useEditorStore.getState().setActiveTool("select")}
+              />
+            )}
+
+            {isUnifiedBanglaEditing && (
+              <UnifiedStoryEditor
+                anchorPageId={pageId}
+                scope={scope}
+                layer="bangla"
+                fontFamily={banglaFamily}
+                fontSize={gBangla}
+                width={width}
+                height={height}
+                lineHeight={rowSpacing}
+                marginTop={bnMarginTop}
+                align="justify"
+                baseline={layout.find(l => !skipSet.has(layout.indexOf(l)))?.by ?? 0}
+                onClose={() => useEditorStore.getState().setActiveTool("select")}
+              />
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 });
@@ -215,6 +223,7 @@ const FabricRow = memo(function FabricRow({
   const sLk = layerKey(pageId, i, "symbol");
 
   const { gArabic, gBangla, gArabicY, gBanglaY, gSymbolY } = useGlobalLayoutValues();
+  const tmpl = useTemplateStore((s) => s.getActiveTemplate());
 
   // Fine-grained: only re-render when this row's four keys change
   const { rOv, aOv, bOv, sOv } = useOverridesStore(
@@ -243,14 +252,6 @@ const FabricRow = memo(function FabricRow({
   const isSelectTool = editMode && activeTool === "select";
 
   // Per-layer drag state (not React state — avoids re-render during drag)
-  const dragRef = useRef<{
-    layer: "arabic" | "bangla" | "symbol";
-    startX: number;
-    startY: number;
-    initDx: number;
-    initDy: number;
-    pointerId: number;
-  } | null>(null);
 
   const arabicSpanRef = useRef<HTMLSpanElement | null>(null);
 
@@ -258,7 +259,7 @@ const FabricRow = memo(function FabricRow({
   const rowScale = rOv?.scale ?? 1;
   const rowTx = rOv?.dx ?? 0;
   const rowTy = rOv?.dy ?? 0;
-  const rowSymbolPx = Math.round((rowFontPx / ARABIC_FONT_PX) * SYMBOL_FONT_PX);
+  const rowSymbolPx = Math.round((rowFontPx / tmpl.typography.arabicFontPx) * tmpl.typography.symbolFontPx);
 
   const lkSy = sLk;
   const isFlashing =
@@ -275,7 +276,7 @@ const FabricRow = memo(function FabricRow({
   const aTracking = aOv?.tracking ?? 0;
   const aVScale = (aOv?.vScale ?? 100) / 100;
   const aHScale = (aOv?.hScale ?? 100) / 100;
-  const aScaleFactor = aFontPx / (gArabic || ARABIC_FONT_PX);
+  const aScaleFactor = aFontPx / (gArabic || tmpl.typography.arabicFontPx);
   const aBaseline = (aOv?.baseline ?? 0) * aScaleFactor;
   const aLineHeight = Math.max(1, aLeading * aScaleFactor);
   const aAlign = (aOv?.align ?? "justify") as React.CSSProperties["textAlign"];
@@ -292,7 +293,7 @@ const FabricRow = memo(function FabricRow({
   const bTracking = bOv?.tracking ?? 0;
   const bVScale = (bOv?.vScale ?? 100) / 100;
   const bHScale = (bOv?.hScale ?? 100) / 100;
-  const bScaleFactor = bFontPx / (gBangla || BANGLA_FONT_PX);
+  const bScaleFactor = bFontPx / (gBangla || tmpl.typography.banglaFontPx);
   const bBaseline = (bOv?.baseline ?? 0) * bScaleFactor;
   const bLineHeight = Math.max(1, bLeading * bScaleFactor);
   const bAlign = (bOv?.align ?? "justify") as React.CSSProperties["textAlign"];
@@ -317,7 +318,7 @@ const FabricRow = memo(function FabricRow({
         left: 0,
         top: L.sy,
         width,
-        height: L.symH + L.arH + L.bnH,
+        height: L.symH + L.arH + L.bnH + (L.pronH ?? 0) + (L.meanH ?? 0),
         overflow: "visible",
         transform: `translate(${rowTx}px, ${rowTy}px) scale(${rowScale})`,
         transformOrigin: "top left",
@@ -344,44 +345,6 @@ const FabricRow = memo(function FabricRow({
                   layerKind: "symbol",
                 });
               }
-            : undefined
-        }
-        onPointerDown={
-          isSelectTool
-            ? (e) => {
-                e.stopPropagation();
-                e.currentTarget.setPointerCapture(e.pointerId);
-                dragRef.current = {
-                  layer: "symbol",
-                  startX: e.clientX,
-                  startY: e.clientY,
-                  initDx: sDx,
-                  initDy: sDy,
-                  pointerId: e.pointerId,
-                };
-                useEditorStore.getState().setSelection({
-                  kind: "layer", key: sLk, pageId, rowIndex: i, layerKind: "symbol",
-                });
-              }
-            : undefined
-        }
-        onPointerMove={
-          isSelectTool
-            ? (e) => {
-                const d = dragRef.current;
-                if (!d || d.layer !== "symbol") return;
-                const zoomScale = useEditorStore.getState().zoom || 1;
-                const dx = Math.round(d.initDx + (e.clientX - d.startX) / zoomScale);
-                const dy = Math.round(d.initDy + (e.clientY - d.startY) / zoomScale);
-                const scope = useEditorStore.getState().scope;
-                if (scope === "general") patchLocal(sLk, { dx, dy });
-                else patchScopedAsync(sLk, { dx, dy }, scope);
-              }
-            : undefined
-        }
-        onPointerUp={
-          isSelectTool
-            ? () => { dragRef.current = null; }
             : undefined
         }
         style={{
@@ -475,44 +438,6 @@ const FabricRow = memo(function FabricRow({
               }
             : undefined
         }
-        onPointerDown={
-          isSelectTool
-            ? (e) => {
-                e.stopPropagation();
-                e.currentTarget.setPointerCapture(e.pointerId);
-                dragRef.current = {
-                  layer: "arabic",
-                  startX: e.clientX,
-                  startY: e.clientY,
-                  initDx: aDx,
-                  initDy: aDy,
-                  pointerId: e.pointerId,
-                };
-                useEditorStore.getState().setSelection({
-                  kind: "layer", key: aLk, pageId, rowIndex: i, layerKind: "arabic",
-                });
-              }
-            : undefined
-        }
-        onPointerMove={
-          isSelectTool
-            ? (e) => {
-                const d = dragRef.current;
-                if (!d || d.layer !== "arabic") return;
-                const zoomScale = useEditorStore.getState().zoom || 1;
-                const dx = Math.round(d.initDx + (e.clientX - d.startX) / zoomScale);
-                const dy = Math.round(d.initDy + (e.clientY - d.startY) / zoomScale);
-                const scope = useEditorStore.getState().scope;
-                if (scope === "general") patchLocal(aLk, { dx, dy });
-                else patchScopedAsync(aLk, { dx, dy }, scope);
-              }
-            : undefined
-        }
-        onPointerUp={
-          isSelectTool
-            ? () => { dragRef.current = null; }
-            : undefined
-        }
 
         style={{
           position: "absolute",
@@ -601,44 +526,6 @@ const FabricRow = memo(function FabricRow({
               }
             : undefined
         }
-        onPointerDown={
-          isSelectTool
-            ? (e) => {
-                e.stopPropagation();
-                e.currentTarget.setPointerCapture(e.pointerId);
-                dragRef.current = {
-                  layer: "bangla",
-                  startX: e.clientX,
-                  startY: e.clientY,
-                  initDx: bDx,
-                  initDy: bDy,
-                  pointerId: e.pointerId,
-                };
-                useEditorStore.getState().setSelection({
-                  kind: "layer", key: bLk, pageId, rowIndex: i, layerKind: "bangla",
-                });
-              }
-            : undefined
-        }
-        onPointerMove={
-          isSelectTool
-            ? (e) => {
-                const d = dragRef.current;
-                if (!d || d.layer !== "bangla") return;
-                const zoomScale = useEditorStore.getState().zoom || 1;
-                const dx = Math.round(d.initDx + (e.clientX - d.startX) / zoomScale);
-                const dy = Math.round(d.initDy + (e.clientY - d.startY) / zoomScale);
-                const scope = useEditorStore.getState().scope;
-                if (scope === "general") patchLocal(bLk, { dx, dy });
-                else patchScopedAsync(bLk, { dx, dy }, scope);
-              }
-            : undefined
-        }
-        onPointerUp={
-          isSelectTool
-            ? () => { dragRef.current = null; }
-            : undefined
-        }
 
         style={{
           position: "absolute",
@@ -694,6 +581,60 @@ const FabricRow = memo(function FabricRow({
           )
         )}
       </div>
+
+      {/* Pronunciation band */}
+      {tmpl.meaningConfig?.showPronunciation && slot.pronunciation && L.pronH && L.pronY && (
+        <div
+          lang="bn"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: L.pronY,
+            width,
+            height: L.pronH,
+            paddingLeft: 8,
+            paddingRight: 8,
+            boxSizing: "border-box",
+            fontFamily: banglaFamily,
+            fontSize: tmpl.meaningConfig.pronunciationFontPx,
+            color: "#6b7280",
+            lineHeight: "normal",
+            display: "block",
+            textAlign: "center",
+            whiteSpace: "nowrap",
+            zIndex: 10,
+          }}
+        >
+          {slot.pronunciation}
+        </div>
+      )}
+
+      {/* Meaning band */}
+      {tmpl.meaningConfig?.showMeaning && slot.meaning && L.meanH && L.meanY && (
+        <div
+          lang="bn"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: L.meanY,
+            width,
+            height: L.meanH,
+            paddingLeft: 8,
+            paddingRight: 8,
+            boxSizing: "border-box",
+            fontFamily: banglaFamily,
+            fontSize: tmpl.meaningConfig.meaningFontPx,
+            color: "#475569",
+            lineHeight: "normal",
+            display: "block",
+            textAlign: "center",
+            whiteSpace: "nowrap",
+            zIndex: 10,
+          }}
+        >
+          {slot.meaning}
+        </div>
+      )}
     </div>
   );
 });
@@ -900,12 +841,12 @@ function InlineTextEditor({
         }
       } catch { /* ignore */ }
 
-      const allPages = base.allPages;
-      const pIdx = allPages.findIndex((p) => p.id === pageId);
-      const nextRef = pIdx >= 0 ? findNextValidRow(pIdx, rowIndex, allPages, layer) : null;
-      if (!nextRef) return; // nowhere to overflow to
-      
-      const targetPageId = allPages[nextRef.pi]!.id;
+      const scopedPages = base.allPages.filter((p) => base.scopedPageIds.includes(p.id));
+      const pIdx = scopedPages.findIndex((p) => p.id === pageId);
+      const nextRef = pIdx >= 0 ? findNextValidRow(pIdx, rowIndex, scopedPages, layer) : null;
+      if (!nextRef) return; // nowhere to overflow within the active scope
+
+      const targetPageId = scopedPages[nextRef.pi]!.id;
       const targetRowIdx = nextRef.ri;
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -914,8 +855,8 @@ function InlineTextEditor({
       const runReflow = () => {
         void reflowFromAsync({
           ...reflowArgs,
-          allPages: base.allPages,
-          surahPageIds: undefined, // Do not constrain text flow by surah
+          allPages: scopedPages,
+          surahPageIds: base.scopedPageIds,
           startPageId: targetPageId,
           startRowIndex: targetRowIdx,
           startOverflow: overflowText,
@@ -929,7 +870,7 @@ function InlineTextEditor({
         newCurrentText: "",
         pushedText: overflowText,
         layer,
-        allPages: base.allPages, // Dry-run across all pages
+        allPages: scopedPages,
         localMap: base.localMap,
         layerKeyFn: base.layerKeyFn,
         fontFamily: base.fontFamily,
@@ -983,8 +924,8 @@ function InlineTextEditor({
       const { cascade: _c, scopedPageIds: _s, allPages: _a, ...reflowArgs } = base;
       backFillFrom({
         ...reflowArgs,
-        allPages: base.allPages,
-        surahPageIds: undefined, // Do not constrain backfill by surah
+        allPages: base.allPages.filter((p) => base.scopedPageIds.includes(p.id)),
+        surahPageIds: base.scopedPageIds,
         startPageId: pageId,
         startRowIndex: rowIndex,
       });
@@ -1033,8 +974,7 @@ function InlineTextEditor({
 
       const scope = useEditorStore.getState().scope;
       const base = getReflowBase();
-      const allPages = base.allPages;
-
+      
       // Link OFF for this layer → Enter cannot push text across rows.
       if (!base.cascade) {
         // Restore split text into a single line and warn.
@@ -1046,19 +986,18 @@ function InlineTextEditor({
       }
 
 
-      // 1. Decouple reflow from layout scope to prevent text loss.
-      // We no longer restrict the pages for text flow (allPages is used globally).
-      const allPagesForReflow = base.allPages;
+      // 1. Keep text flow inside the effective scoped page set.
+      const allPagesForReflow = base.allPages.filter((p) => base.scopedPageIds.includes(p.id));
 
-      // 2. Resolve insertion point
-      const pIdx = allPages.findIndex((p) => p.id === pageId);
-      const nextRef = pIdx >= 0 ? findNextValidRow(pIdx, rowIndex, allPages, layer) : null;
+      // 2. Resolve insertion point inside the active scope.
+      const pIdx = allPagesForReflow.findIndex((p) => p.id === pageId);
+      const nextRef = pIdx >= 0 ? findNextValidRow(pIdx, rowIndex, allPagesForReflow, layer) : null;
       if (!nextRef) return;
       const { pi: tPi, ri: targetRowIdx } = nextRef;
-      const targetPageId = allPages[tPi]!.id;
+      const targetPageId = allPagesForReflow[tPi]!.id;
 
       // 3. Combined overflow (afterText + existing text at target row)
-      const tPage = allPages[tPi]!;
+      const tPage = allPagesForReflow[tPi]!;
       const tLk = layerKey(targetPageId, targetRowIdx, layer);
       const tSlots = getDomSlots(tPage);
       const tSlot = tSlots[targetRowIdx];
@@ -1095,7 +1034,7 @@ function InlineTextEditor({
         newCurrentText: nextFits,
         pushedText: nextOverflow.trim(),
         layer,
-        allPages: allPagesForReflow, // Dry-run across all pages globally
+        allPages: allPagesForReflow,
         localMap: localMapNow,
         layerKeyFn: base.layerKeyFn,
         fontFamily: base.fontFamily,
@@ -1110,7 +1049,7 @@ function InlineTextEditor({
         void reflowFromAsync({
           ...reflowOpts,
           allPages: allPagesForReflow,
-          surahPageIds: undefined, // Do not constrain by surah
+          surahPageIds: base.scopedPageIds,
           startPageId: targetPageId,
           startRowIndex: targetRowIdx,
           startOverflow: combined,
@@ -1173,8 +1112,8 @@ function InlineTextEditor({
       e.preventDefault();
       const scope = useEditorStore.getState().scope;
 
-      // Decouple collapse from layout scope boundaries to prevent text getting stuck
-      const allPagesForCollapse = base.allPages;
+      // Keep collapse inside the effective scoped page set.
+      const allPagesForCollapse = base.allPages.filter((p) => base.scopedPageIds.includes(p.id));
       const curPi = allPagesForCollapse.findIndex((p) => p.id === pageId);
       const prevPageId = curPi > 0 ? allPagesForCollapse[curPi - 1]!.id : null;
 
@@ -1190,7 +1129,7 @@ function InlineTextEditor({
           fontFamily: base.fontFamily,
           fontSize: base.fontSize,
           availableWidth: base.availableWidth,
-          surahPageIds: undefined, // Do not constrain collapse by surah boundary
+          surahPageIds: base.scopedPageIds,
         });
         if (result.merged) {
           const updated = useOverridesStore.getState().local[lk]?.text ?? "";

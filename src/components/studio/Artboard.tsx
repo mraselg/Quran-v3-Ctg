@@ -3,7 +3,7 @@ import { useFont } from "@/context/FontContext";
 import type { PageData } from "@/data/pages";
 import { useEditorStore, type Selection } from "@/state/editorStore";
 import { useLinkingStore } from "@/state/linkingStore";
-import { useOverridesStore } from "@/state/overridesStore";
+import { layerKey, useOverridesStore } from "@/state/overridesStore";
 import { useReflowStore } from "@/state/reflowStore";
 import { buildVisibleDualLayerKeys } from "@/lib/scopeTargets";
 import { ArchedHeader } from "./ArchedHeader";
@@ -12,80 +12,50 @@ import { FabricLines, type FabricLine } from "./FabricLines";
 import { SlimFooter } from "./SlimFooter";
 import { SlimHeader } from "./SlimHeader";
 import { SurahOpenBlock } from "./SurahOpenBlock";
+import { useTemplateStore } from "@/state/templateStore";
 
-/* Canonical SVG coordinate system — matches public/templates/page-default.svg
-   (viewBox 420.17 × 630.28). Yellow bands span x = 7.46 → 412.58. */
-const VB_W = 420.17;
-const VB_H = 630.28;
-const DISPLAY_W = 780;
-const SCALE = DISPLAY_W / VB_W; // ~1.857
-const DISPLAY_H = VB_H * SCALE;
-
-const LINE_X = 7.46;
-const LINE_W = 412.58 - 7.46; // 405.12
-
-/** Header / footer bands from the SVG (yellow polylines). */
-const HEADER_BAND = { y0: 7.5, y1: 25.41 };
-const FOOTER_BAND_Y1 = 622.95;
-
-/** Exact y-coordinates (SVG units) for each of the 9 ayah bands in
- *  public/templates/page-default.svg — top → bottom of each yellow polyline. */
-const ROW_BANDS_SVG: Array<[number, number]> = [
-  [36.86, 89.81],
-  [101.43, 154.38],
-  [165.82, 218.77],
-  [230.22, 283.16],
-  [294.63, 347.58],
-  [359.01, 411.96],
-  [423.54, 476.49],
-  [487.83, 540.77],
-  [552.30, 622.95],
-];
-
-const FIRST_ROW_Y = ROW_BANDS_SVG[0][0];
-const LAST_ROW_Y2 = ROW_BANDS_SVG[ROW_BANDS_SVG.length - 1][1];
-
-const GRID_LEFT_PX = LINE_X * SCALE;
-const GRID_TOP_PX = FIRST_ROW_Y * SCALE;
-const GRID_W_PX = LINE_W * SCALE;
-const GRID_H_PX = (LAST_ROW_Y2 - FIRST_ROW_Y) * SCALE;
-
-/** Within each yellow band: small symbol strip on top, Arabic baseline area
- *  in the middle, Bangla translation pinned to the bottom. Proportions are
- *  picked so font sizes fit cleanly inside the physical band. */
-const GRID_LAYOUT_PX = ROW_BANDS_SVG.map(([y0, y1]) => {
-  const sy = (y0 - FIRST_ROW_Y) * SCALE;
-  const bandH = (y1 - y0) * SCALE;
-  const symH = bandH * 0.28;
-  const bnH = bandH * 0.24;
-  const arH = bandH - symH - bnH;
-  return { sy, ay: sy + symH, by: sy + symH + arH, symH, arH, bnH };
-});
-
-// Header band (top strip of SVG) and footer band (bottom of last yellow band).
-const HEADER_TOP_PX = HEADER_BAND.y0 * SCALE;
-const HEADER_H_PX = (HEADER_BAND.y1 - HEADER_BAND.y0) * SCALE;
-const FOOTER_H_PX = 16 * SCALE;
-const FOOTER_TOP_PX = (FOOTER_BAND_Y1 - 16) * SCALE;
+import { getScale, getDisplayH, getGridTopPx, computeGridLayout } from "@/lib/templateUtils";
 
 export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageData; zoom?: number }) {
   const { activeFamily } = useFont();
   const isOpen = page.type === "surah-open";
+  const tmpl = useTemplateStore((s) => s.getActiveTemplate());
+  const linesPerPage = tmpl.linesPerPage;
+  const surahOpenStartAt = tmpl.surahOpen.startAt;
 
-  // Map a PageData into 9 line slots; first 3 are reserved on surah-open pages.
-  const slots: FabricLine[] = Array.from({ length: 9 }, () => ({} as FabricLine));
+  const layoutMetrics = useMemo(() => {
+    const scale = getScale(tmpl.pageGeometry);
+    const displayH = getDisplayH(tmpl.pageGeometry);
+    const gridTopPx = getGridTopPx(tmpl);
+    const gridLayoutPx = computeGridLayout(tmpl);
+    const headerTopPx = tmpl.pageGeometry.headerBand[0] * scale;
+    const headerHPx = (tmpl.pageGeometry.headerBand[1] - tmpl.pageGeometry.headerBand[0]) * scale;
+    const footerHPx = 16 * scale;
+    const footerTopPx = (tmpl.pageGeometry.footerBandY1 - 16) * scale;
+    const gridLeftPx = tmpl.pageGeometry.lineX * scale;
+    const gridWPx = (tmpl.pageGeometry.lineXEnd - tmpl.pageGeometry.lineX) * scale;
+    const firstRowY = tmpl.pageGeometry.rowBandsSvg[0]![0];
+    const lastRowY2 = tmpl.pageGeometry.rowBandsSvg[tmpl.pageGeometry.rowBandsSvg.length - 1]![1];
+    const gridHPx = (lastRowY2 - firstRowY) * scale;
+    
+    return {
+      scale, displayH, gridTopPx, gridLayoutPx, headerTopPx, headerHPx, footerHPx, footerTopPx, gridLeftPx, gridWPx, gridHPx
+    };
+  }, [tmpl]);
+  const { scale, displayH, gridTopPx, gridLayoutPx, headerTopPx, headerHPx, footerHPx, footerTopPx, gridLeftPx, gridWPx, gridHPx } = layoutMetrics;
+
+  // Map a PageData into line slots
+  const slots: FabricLine[] = Array.from({ length: linesPerPage }, () => ({} as FabricLine));
   const skipSlots: number[] = [];
   const inlineSurahOpens: Array<{ index: number; data: NonNullable<PageData["lines"][number]["surahOpen"]> }> = [];
-  const startAt = isOpen ? 3 : 0;
-  page.lines.slice(0, 9 - startAt).forEach((l, i) => {
+  const startAt = isOpen ? surahOpenStartAt : 0;
+  page.lines.slice(0, linesPerPage - startAt).forEach((l, i) => {
     const idx = startAt + i;
     if (l.slotKind === "surah-open" && l.surahOpen) {
       inlineSurahOpens.push({ index: idx, data: l.surahOpen });
-      skipSlots.push(idx, idx + 1);
-      return;
-    }
-    if (l.slotKind === "blank") {
-      skipSlots.push(idx);
+      for (let k = 0; k < tmpl.surahOpen.headerSpan; k++) {
+        skipSlots.push(idx + k);
+      }
       return;
     }
     slots[idx] = {
@@ -312,11 +282,66 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
       d.el.style.transform = d.baseTransform;
       return;
     }
-    patchLocal(d.key, { dx: d.baseDx + ddx, dy: d.baseDy + ddy });
+
+    const scope = useEditorStore.getState().scope;
+
+    if (scope === "general" && d.key.startsWith("layer:")) {
+      const parts = d.key.split(":"); // layer:pageId:rowIndex:layerKind
+      const rowIndex = parseInt(parts[2] || "-1");
+      const layerKind = parts[3] as "symbol" | "arabic" | "bangla";
+      
+      const boardRect = boardRef.current?.getBoundingClientRect();
+      if (rowIndex !== -1 && boardRect) {
+        const boardY = (e.clientY - boardRect.top) / zoom;
+        let targetIndex = -1;
+        let minDiff = Infinity;
+        
+        for (let i = 0; i < 9; i++) {
+           const L = gridLayoutPx[i];
+           if (!L) continue;
+           const rowCenter = gridTopPx + L.sy + (L.symH + L.arH + L.bnH) / 2;
+           const diff = Math.abs(boardY - rowCenter);
+           if (diff < minDiff) {
+              minDiff = diff;
+              targetIndex = i;
+           }
+        }
+        
+        const rowH = gridLayoutPx[0]?.symH! + gridLayoutPx[0]?.arH! + gridLayoutPx[0]?.bnH!;
+        if (targetIndex !== -1 && targetIndex !== rowIndex && Math.abs(ddy) > rowH * 0.4) {
+           const targetLk = layerKey(parts[1]!, targetIndex, layerKind);
+           const store = useOverridesStore.getState();
+           
+           // We need to fetch the current text for both rows.
+           // Artboard doesn't have direct access to slots array here, but slots is calculated in component.
+           // But actually we can just read from overridesStore. If not there, we can't easily read page.lines without find.
+           // Wait, page object is available in Artboard scope!
+           const pageLines = page.lines;
+           const currentText = store.local[d.key]?.text ?? (pageLines[rowIndex] as any)?.[layerKind === "symbol" ? "markers" : layerKind + "Line"] ?? "";
+           const targetText = store.local[targetLk]?.text ?? (pageLines[targetIndex] as any)?.[layerKind === "symbol" ? "markers" : layerKind + "Line"] ?? "";
+           
+           store.patchLocal(targetLk, { text: typeof currentText === "string" ? currentText : currentText.join("  "), dy: 0, dx: 0 });
+           store.patchLocal(d.key, { text: typeof targetText === "string" ? targetText : targetText.join("  "), dy: 0, dx: 0 });
+           return;
+        }
+      }
+    }
+
+    if (scope === "general") {
+      patchLocal(d.key, { dx: d.baseDx + ddx, dy: d.baseDy + ddy });
+    } else {
+      import("@/state/overridesStore").then(async ({ patchScoped, effectiveScope }) => {
+        const parts = d.key.split(":");
+        const layerKind = parts[3] as "symbol" | "arabic" | "bangla";
+        const eff = await effectiveScope(scope, layerKind);
+        await patchScoped(d.key, { dx: d.baseDx + ddx, dy: d.baseDy + ddy }, eff);
+      });
+    }
   };
 
   return (
     <div
+      id="quran-artboard"
       ref={boardRef}
       data-artboard="true"
       data-page-num={page.id.replace(/^vpage-/, "")}
@@ -351,8 +376,8 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
         }
       }}
       style={{
-        width: DISPLAY_W,
-        height: DISPLAY_H,
+        width: tmpl.pageGeometry.displayW,
+        height: displayH,
         backgroundImage: "var(--page-bg)",
         backgroundSize: "100% 100%",
         backgroundRepeat: "no-repeat",
@@ -366,10 +391,10 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
       <div
         style={{
           position: "absolute",
-          left: GRID_LEFT_PX,
-          top: HEADER_TOP_PX,
-          width: GRID_W_PX,
-          height: HEADER_H_PX,
+          left: gridLeftPx,
+          top: headerTopPx,
+          width: gridWPx,
+          height: headerHPx,
         }}
       >
         <SlimHeader para={headerLeft} title={headerCenter} chapter={headerRight} />
@@ -380,10 +405,10 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
         <div
           style={{
             position: "absolute",
-            left: GRID_LEFT_PX,
-            top: GRID_TOP_PX,
-            width: GRID_W_PX,
-            height: GRID_LAYOUT_PX[2].by + GRID_LAYOUT_PX[2].bnH,
+            left: gridLeftPx,
+            top: gridTopPx,
+            width: gridWPx,
+            height: gridLayoutPx[2].by + gridLayoutPx[2].bnH,
             pointerEvents: "none",
           }}
         >
@@ -401,16 +426,16 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
       <div
         style={{
           position: "absolute",
-          left: GRID_LEFT_PX,
-          top: GRID_TOP_PX,
-          width: GRID_W_PX,
-          height: GRID_H_PX,
+          left: gridLeftPx,
+          top: gridTopPx,
+          width: gridWPx,
+          height: gridHPx,
         }}
       >
         <FabricLines
-          width={GRID_W_PX}
-          height={GRID_H_PX}
-          layout={GRID_LAYOUT_PX}
+          width={gridWPx}
+          height={gridHPx}
+          layout={gridLayoutPx}
           lines={slots}
           arabicFamily={activeFamily}
           skip={startAt}
@@ -420,8 +445,8 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
 
         {/* Inline surah-open SVG blocks (span 2 line bands each) */}
         {inlineSurahOpens.map(({ index, data }) => {
-          const top = GRID_LAYOUT_PX[index].sy;
-          const next = GRID_LAYOUT_PX[Math.min(index + 1, GRID_LAYOUT_PX.length - 1)];
+          const top = gridLayoutPx[index].sy;
+          const next = gridLayoutPx[Math.min(index + 1, gridLayoutPx.length - 1)];
           const bottom = next.by + next.bnH;
           return (
             <div
@@ -430,7 +455,7 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
                 position: "absolute",
                 left: 0,
                 top,
-                width: GRID_W_PX,
+                width: gridWPx,
                 height: bottom - top,
               }}
             >
@@ -441,7 +466,7 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
                 ruku={data.ruku}
                 bismillahArabic={data.bismillahArabic}
                 bismillahBangla={data.bismillahBangla}
-                width={GRID_W_PX}
+                width={gridWPx}
                 height={bottom - top}
                 arabicFamily={activeFamily}
               />
@@ -454,10 +479,10 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
       <div
         style={{
           position: "absolute",
-          left: GRID_LEFT_PX,
-          top: FOOTER_TOP_PX,
-          width: GRID_W_PX,
-          height: FOOTER_H_PX,
+          left: gridLeftPx,
+          top: footerTopPx,
+          width: gridWPx,
+          height: footerHPx,
         }}
       >
         <SlimFooter data={page.footer} />
@@ -466,19 +491,19 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
       {/* Guides overlay — baselines for each row band */}
       {showGuides && (
         <svg
-          width={DISPLAY_W}
-          height={DISPLAY_H}
+          width={tmpl.pageGeometry.displayW}
+          height={displayH}
           style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none" }}
         >
-          {GRID_LAYOUT_PX.map((L, i) => {
-            const y = GRID_TOP_PX + L.sy;
+          {gridLayoutPx.map((L, i) => {
+            const y = gridTopPx + L.sy;
             const h = L.symH + L.arH + L.bnH;
             return (
               <g key={`g-${i}`} stroke="#0ea5e9" strokeDasharray="3 3" opacity={0.55}>
-                <line x1={GRID_LEFT_PX} y1={y} x2={GRID_LEFT_PX + GRID_W_PX} y2={y} />
-                <line x1={GRID_LEFT_PX} y1={y + L.symH} x2={GRID_LEFT_PX + GRID_W_PX} y2={y + L.symH} strokeDasharray="1 2" />
-                <line x1={GRID_LEFT_PX} y1={y + L.symH + L.arH} x2={GRID_LEFT_PX + GRID_W_PX} y2={y + L.symH + L.arH} strokeDasharray="1 2" />
-                <line x1={GRID_LEFT_PX} y1={y + h} x2={GRID_LEFT_PX + GRID_W_PX} y2={y + h} />
+                <line x1={gridLeftPx} y1={y} x2={gridLeftPx + gridWPx} y2={y} />
+                <line x1={gridLeftPx} y1={y + L.symH} x2={gridLeftPx + gridWPx} y2={y + L.symH} strokeDasharray="1 2" />
+                <line x1={gridLeftPx} y1={y + L.symH + L.arH} x2={gridLeftPx + gridWPx} y2={y + L.symH + L.arH} strokeDasharray="1 2" />
+                <line x1={gridLeftPx} y1={y + h} x2={gridLeftPx + gridWPx} y2={y + h} />
               </g>
             );
           })}

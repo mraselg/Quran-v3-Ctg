@@ -577,13 +577,25 @@ export function PageList({ activeId, onSelect }: Props) {
               {activeIdx + 1} / {distribution.length}
             </span>
           </div>
-          <div className="mt-1 text-xs font-medium text-neutral-200 truncate">
-            {surahNameBn(activeData.surah)}
-            {activeData.firstVerse != null && (
-              <span className="ml-1 text-neutral-500">
-                {bnNum(activeData.firstVerse)}–{bnNum(activeData.lastVerse ?? activeData.firstVerse)}
-              </span>
-            )}
+          <div className="mt-1 text-xs font-medium text-neutral-200 truncate flex items-center justify-between">
+            <div>
+              {surahNameBn(activeData.surah)}
+              {activeData.firstVerse != null && (
+                <span className="ml-1 text-neutral-500">
+                  {bnNum(activeData.firstVerse)}–{bnNum(activeData.lastVerse ?? activeData.firstVerse)}
+                </span>
+              )}
+            </div>
+            {(() => {
+              const surahLineMap = useReflowStore.getState().surahLineMap;
+              const entry = surahLineMap.get(activeData.surah);
+              if (!entry) return null;
+              return (
+                <div className="text-[10px] font-normal text-amber-200/70">
+                  {bnNum(entry.totalLines)} লাইন, {bnNum(entry.pageCount)} পেজ
+                </div>
+              );
+            })()}
           </div>
           <div className="mt-2 h-0.5 overflow-hidden rounded-full bg-neutral-800">
             <div

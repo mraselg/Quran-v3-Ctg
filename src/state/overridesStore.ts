@@ -3,6 +3,9 @@ import { temporal } from "zundo";
 import { persist } from "zustand/middleware";
 import type { SelectionScope } from "./editorStore";
 import { buildScopedKeys, parseScopedKey, resolveTargetPageIds } from "@/lib/scopeTargets";
+import { toast } from "sonner";
+import { useTemplateStore } from "@/state/templateStore";
+import { templateToGlobalDefaults } from "@/lib/templateUtils";
 
 export type GlobalOverrides = {
   arabicFontPx?: number;
@@ -35,6 +38,13 @@ export type LocalOverride = {
   textMode?: "point" | "area";
   /** Area Text-এ custom frame height (px). null/undefined = auto (fit content) */
   areaHeight?: number | null;
+  /** New frame types for Feature 1 (Area Text Flow) */
+  frameType?: "point" | "area-fixed" | "area-auto";
+  fixedHeight?: number;
+  maxAutoHeight?: number;
+  /** Frame Linking */
+  linkedNextFrameId?: string;
+  linkedPrevFrameId?: string;
 };
 
 /** Stable keys — logical (verse-based) for words/symbols, page-bound for rows.
@@ -62,7 +72,10 @@ type OverridesState = {
   local: Record<LocalKey, LocalOverride>;
   setGlobal: <K extends keyof GlobalOverrides>(k: K, v: GlobalOverrides[K] | undefined) => void;
   patchLocal: (key: LocalKey, patch: Partial<Record<keyof LocalOverride, LocalOverride[keyof LocalOverride] | undefined>>) => void;
+  patchLocalBatch: (patches: {key: LocalKey, patch: Partial<Record<keyof LocalOverride, LocalOverride[keyof LocalOverride] | undefined>>}[]) => void;
   clearLocal: (key: LocalKey) => void;
+  globalSubRuleDx: Record<string, number>;
+  setSubRuleDx: (symbolId: number, subRuleId: string, dx: number) => void;
   resetAll: () => void;
   resetScoped: (
     scope: SelectionScope,
@@ -70,7 +83,7 @@ type OverridesState = {
   ) => Promise<void>;
 };
 
-type Persisted = Pick<OverridesState, "global" | "local">;
+type Persisted = Pick<OverridesState, "global" | "local" | "globalSubRuleDx">;
 
 /**
  * Master Template defaults — font sizes only.
@@ -97,11 +110,11 @@ export function setRestoringHistory(v: boolean) { _restoringHistory = v; }
  * "Reset All" restores to this state rather than factory MASTER_DEFAULTS.
  * Not persisted — lives only for the current browser session.
  */
-let _sessionBaseline: { global: GlobalOverrides; local: Record<string, LocalOverride> } | null = null;
+let _sessionBaseline: { global: GlobalOverrides; local: Record<string, LocalOverride>; globalSubRuleDx: Record<string, number> } | null = null;
 
 export function captureSessionBaseline() {
   const s = useOverridesStore.getState();
-  _sessionBaseline = { global: { ...s.global }, local: { ...s.local } };
+  _sessionBaseline = { global: { ...s.global }, local: { ...s.local }, globalSubRuleDx: { ...s.globalSubRuleDx } };
 }
 
 export function getSessionBaseline() {
@@ -129,6 +142,7 @@ export const useOverridesStore = create<OverridesState>()(
       (set, get) => ({
         global: { ...MASTER_DEFAULTS },
         local: {},
+        globalSubRuleDx: {},
 
         setGlobal: (k, v) => {
           const before = get().global[k];
@@ -185,6 +199,21 @@ export const useOverridesStore = create<OverridesState>()(
           });
         },
 
+        patchLocalBatch: (patches) => {
+          set((s) => {
+            const next = { ...s.local };
+            for (const { key, patch } of patches) {
+              const merged = { ...(next[key] ?? {}), ...patch } as Record<string, unknown>;
+              for (const k of Object.keys(patch)) {
+                if ((patch as Record<string, unknown>)[k] === undefined) delete merged[k];
+              }
+              if (Object.keys(merged).length === 0) delete next[key];
+              else next[key] = merged as LocalOverride;
+            }
+            return { local: next };
+          });
+        },
+
         clearLocal: (key) =>
           set((s) => {
             const next = { ...s.local };
@@ -192,8 +221,15 @@ export const useOverridesStore = create<OverridesState>()(
             return { local: next };
           }),
 
-        // Reset returns to MASTER_DEFAULTS, not empty {}
-        resetAll: () => set({ global: { ...MASTER_DEFAULTS }, local: {} }),
+        // Reset returns to template defaults
+        resetAll: () => {
+          let defs = MASTER_DEFAULTS;
+          try {
+            const tmpl = useTemplateStore.getState().getActiveTemplate();
+            if (tmpl) defs = templateToGlobalDefaults(tmpl) as GlobalOverrides;
+          } catch { /* ignore */ }
+          set({ global: { ...defs }, local: {}, globalSubRuleDx: {} });
+        },
 
         resetScoped: async (scope, ctx) => {
           if (scope === "global") {
@@ -232,24 +268,43 @@ export const useOverridesStore = create<OverridesState>()(
             return { local: next };
           });
         },
+
+        setSubRuleDx: (symbolId, subRuleId, dx) => {
+          const key = `subDx:${symbolId}:${subRuleId}`;
+          set((s) => {
+            const next = { ...s.globalSubRuleDx };
+            if (dx === 0) delete next[key];
+            else next[key] = dx;
+            return { globalSubRuleDx: next };
+          });
+        },
       }),
       {
         limit: 100,
         // Reference equality: patchLocal/setGlobal always create new object references,
         // so this creates a snapshot on every real change while skipping no-op updates.
-        equality: (a, b) => a.global === b.global && a.local === b.local,
+        equality: (a, b) => a.global === b.global && a.local === b.local && a.globalSubRuleDx === b.globalSubRuleDx,
       },
     ),
     {
       name: "studio-overrides-v4",
-      partialize: (s): Persisted => ({ global: s.global, local: s.local }),
+      partialize: (s): Persisted => ({ global: s.global, local: s.local, globalSubRuleDx: s.globalSubRuleDx }),
       // On first load, merge stored state on top of MASTER_DEFAULTS
       // so any stored user changes are preserved but defaults fill gaps.
-      merge: (persisted, current) => ({
-        ...current,
-        global: { ...MASTER_DEFAULTS, ...(persisted as Persisted).global },
-        local: (persisted as Persisted).local ?? {},
-      }),
+      merge: (persisted, current) => {
+        let defs = MASTER_DEFAULTS;
+        try {
+          const tmpl = useTemplateStore.getState().getActiveTemplate();
+          if (tmpl) defs = templateToGlobalDefaults(tmpl) as GlobalOverrides;
+        } catch { /* ignore */ }
+        
+        return {
+          ...current,
+          global: { ...defs, ...(persisted as Persisted).global },
+          local: (persisted as Persisted).local || {},
+          globalSubRuleDx: (persisted as Persisted).globalSubRuleDx || {},
+        };
+      },
     },
   ),
 );
@@ -352,10 +407,22 @@ export async function patchScoped(
   // with the real scope at the end.
   const { beginSilent, endSilent, captureHistory } = await import("./historyStore");
   beginSilent();
+  let toastId: string | number | undefined;
+  if (keys.length > 50) {
+    toastId = toast.loading(`Applying changes to ${scope} scope...`);
+  }
+  
   try {
-    for (const k of keys) useOverridesStore.getState().patchLocal(k, patch);
+    for (let i = 0; i < keys.length; i += 50) {
+      const batch = keys.slice(i, i + 50);
+      const patches = batch.map(k => ({ key: k, patch }));
+      useOverridesStore.getState().patchLocalBatch(patches);
+      // Yield to browser to keep UI responsive
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
   } finally {
     endSilent();
+    if (toastId) toast.success("Changes applied successfully", { id: toastId });
   }
 
   if (mainField && beforeRep !== afterRep && !_restoringHistory) {

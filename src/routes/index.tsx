@@ -1,20 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Workspace } from "@/components/studio/Workspace";
+import { Dashboard } from "@/components/studio/Dashboard";
 
 export const Route = createFileRoute("/")({
   component: Index,
   head: () => ({
     meta: [
-      { title: "Studio Al-Qalam — Quranic DTP Workspace" },
+      { title: "Studio Al-Qalam — Dashboard" },
       {
         name: "description",
         content:
-          "Studio Al-Qalam: a desktop publishing workspace for high-precision Quranic page layout and print export.",
+          "Studio Al-Qalam Dashboard: Manage your Quranic templates and projects.",
       },
     ],
   }),
 });
 
 function Index() {
-  return <Workspace />;
+  return <Dashboard />;
 }

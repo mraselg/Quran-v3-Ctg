@@ -1,7 +1,10 @@
 import { useRef, useState } from "react";
-import { BookOpen, ChevronDown, ChevronUp, Download, Eye, EyeOff, FileText, FileType, Image as ImageIcon, Layers, Palette, Printer, RotateCcw, Sliders, Type, Upload } from "lucide-react";
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
+import { BookOpen, Download, FileText, FileType, Image as ImageIcon, Layers, Palette, Printer, RotateCcw, Sliders, Type, Upload } from "lucide-react";
 import { useFont } from "@/context/FontContext";
 import { useBackground } from "@/context/BackgroundContext";
+import { BatchExportModal } from "./BatchExportModal";
 import { RulesPanel } from "./RulesPanel";
 import { TransformPanel } from "./TransformPanel";
 import { PropertiesPanel } from "./PropertiesPanel";
@@ -9,13 +12,13 @@ import { LayerPanel } from "./LayerPanel";
 import { useEditorStore } from "@/state/editorStore";
 import { useOverridesStore, type GlobalOverrides } from "@/state/overridesStore";
 import { useReflowStore } from "@/state/reflowStore";
-import { ARABIC_FONT_PX, BANGLA_FONT_PX } from "./FabricLines";
+import { useTemplateStore } from "@/state/templateStore";
 import type { PageData } from "@/data/pages";
+import { TemplateGoToBuilder } from "./TemplateGoToBuilder";
 
 const PREVIEW_TABS = [
   { id: "template", label: "টেমপ্লেট", icon: Layers },
   { id: "background", label: "ব্যাকগ্রাউন্ড", icon: ImageIcon },
-  { id: "tools", label: "রুলস", icon: BookOpen },
   { id: "font", label: "ফন্ট", icon: Type },
   { id: "export", label: "Export", icon: Download },
 ] as const;
@@ -24,9 +27,7 @@ type PreviewTabId = (typeof PREVIEW_TABS)[number]["id"];
 
 export function Inspector({ page }: { page?: PageData }) {
   const [previewTab, setPreviewTab] = useState<PreviewTabId>("template");
-  const [editorTab, setEditorTab] = useState<"properties" | "layer">("properties");
-  // Properties panel is open by default in edit mode
-  const [propsPanelOpen, setPropsPanelOpen] = useState(true);
+  const [editorTab, setEditorTab] = useState<"properties" | "layer" | "rules">("properties");
   const editMode = useEditorStore((s) => s.editMode);
   const activeTool = useEditorStore((s) => s.activeTool);
 
@@ -37,16 +38,9 @@ export function Inspector({ page }: { page?: PageData }) {
       <div className="flex border-b border-neutral-800 bg-neutral-900">
         {editMode ? (
           <>
-            {/* Properties tab — click toggles expand/collapse */}
+            {/* Properties tab */}
             <button
-              onClick={() => {
-                if (editorTab !== "properties") {
-                  setEditorTab("properties");
-                  setPropsPanelOpen(true);
-                } else {
-                  setPropsPanelOpen((v) => !v);
-                }
-              }}
+              onClick={() => setEditorTab("properties")}
               className={`flex flex-1 items-center justify-center gap-1 border-b-2 px-1 py-2 text-[11px] transition-colors ${
                 editorTab === "properties"
                   ? "border-amber-400 bg-neutral-950 text-amber-200"
@@ -55,11 +49,6 @@ export function Inspector({ page }: { page?: PageData }) {
             >
               <Sliders className="h-3 w-3" />
               {activeTool === "type" ? "ক্যারেক্টার" : "প্রপার্টিজ"}
-              {editorTab === "properties" && (
-                propsPanelOpen
-                  ? <ChevronUp className="h-2.5 w-2.5 ml-0.5 opacity-60" />
-                  : <ChevronDown className="h-2.5 w-2.5 ml-0.5 opacity-60" />
-              )}
             </button>
             <button
               onClick={() => setEditorTab("layer")}
@@ -71,6 +60,17 @@ export function Inspector({ page }: { page?: PageData }) {
             >
               <Layers className="h-3 w-3" />
               লেয়ার
+            </button>
+            <button
+              onClick={() => setEditorTab("rules")}
+              className={`flex flex-1 items-center justify-center gap-1 border-b-2 px-1 py-2 text-[11px] transition-colors ${
+                editorTab === "rules"
+                  ? "border-emerald-400 bg-neutral-950 text-emerald-200"
+                  : "border-transparent text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800"
+              }`}
+            >
+              <BookOpen className="h-3 w-3" />
+              রুলিং
             </button>
           </>
         ) : (
@@ -98,30 +98,23 @@ export function Inspector({ page }: { page?: PageData }) {
       {/* Tab Content */}
       {editMode ? (
         editorTab === "properties" ? (
-          // Properties: only show when expanded
-          propsPanelOpen ? (
-            <div className="flex-1 overflow-y-auto p-3 pb-12 text-xs">
-              <PropertiesPanel />
-            </div>
-          ) : (
-            // Collapsed state: show a subtle hint
-            <div className="flex items-center justify-center gap-1.5 py-3 text-[10px] text-neutral-700 cursor-pointer hover:text-neutral-500 transition-colors"
-              onClick={() => setPropsPanelOpen(true)}
-            >
-              <ChevronDown className="h-3 w-3" />
-              ক্লিক করে প্রপার্টিজ দেখুন
-            </div>
-          )
-        ) : (
+          // Properties: always visible when tab is active
+          <div className="flex-1 overflow-y-auto p-3 pb-12 text-xs">
+            <PropertiesPanel />
+          </div>
+        ) : editorTab === "layer" ? (
           <div className="flex-1 overflow-y-auto p-3 pb-12 text-xs">
             {page ? <LayerPanel page={page} /> : <div className="text-neutral-600 text-center pt-8">পেজ লোড হচ্ছে...</div>}
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-3 pb-12 text-xs">
+            <RulesPanel />
           </div>
         )
       ) : (
         <div className="flex-1 overflow-y-auto p-3 pb-12 text-xs">
-          {previewTab === "template" && <TemplatePanel />}
+          {previewTab === "template" && <TemplateGoToBuilder />}
           {previewTab === "background" && <BackgroundPanel />}
-          {previewTab === "tools" && <RulesPanel />}
           {previewTab === "font" && <FontPanel />}
           {previewTab === "export" && <ExportPanel page={page} />}
         </div>
@@ -162,142 +155,6 @@ function Field({ label, value, onChange, unit = "px", readOnly = false }: { labe
   );
 }
 
-function TemplatePanel() {
-  const showGuides = useEditorStore((s) => s.showGuides);
-  const setShowGuides = useEditorStore((s) => s.setShowGuides);
-
-  // Actual artboard dimensions (fixed by template design)
-  const ARTBOARD_W = 780;
-  const ARTBOARD_H = 1170;
-  const SIDE_PAD = 8;
-
-  return (
-    <div>
-      <Section title="টেমপ্লেট নাম" icon={Layers}>
-        <button className="w-full rounded bg-amber-500 py-1.5 text-[11px] font-semibold text-neutral-950 hover:bg-amber-400">
-          মাস্টার টেমপ্লেট
-        </button>
-      </Section>
-
-      <Section title="পেজ সাইজ (PX)" icon={Sliders}>
-        <div className="rounded border border-neutral-800 bg-neutral-900/50 px-2.5 py-2 text-[10px] text-neutral-500 mb-1">
-          আর্টবোর্ড সাইজ টেমপ্লেট দ্বারা নির্ধারিত
-        </div>
-        <Field label="প্রস্থ (W)" value={ARTBOARD_W} readOnly />
-        <Field label="উচ্চতা (H)" value={ARTBOARD_H} readOnly />
-      </Section>
-
-      <Section title="মার্জিন (PX)" icon={Sliders}>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="উপর" value={0} readOnly unit="" />
-          <Field label="ডান" value={SIDE_PAD} readOnly unit="" />
-          <Field label="নিচ" value={0} readOnly unit="" />
-          <Field label="বাম" value={SIDE_PAD} readOnly unit="" />
-        </div>
-      </Section>
-
-      <Section title="ডিজাইন এলিমেন্ট" icon={Palette}>
-        <div className="flex items-center justify-between rounded bg-neutral-800/60 px-2 py-2 text-[11px]">
-          <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-300">0টি এলিমেন্ট</span>
-          <span className="text-neutral-500">Template Builder থেকে যোগ করুন</span>
-        </div>
-      </Section>
-
-      <Section title="ডিসপ্লে" icon={Sliders}>
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] text-neutral-400">Slot গাইড লাইন</span>
-          <button
-            onClick={() => setShowGuides(!showGuides)}
-            title={showGuides ? "গাইড লুকাও" : "গাইড দেখাও"}
-            className={`relative flex h-5 w-9 items-center rounded-full border transition-colors ${
-              showGuides
-                ? "border-sky-500/60 bg-sky-500/20"
-                : "border-neutral-600 bg-neutral-800"
-            }`}
-          >
-            <span
-              className={`absolute left-0.5 h-3.5 w-3.5 rounded-full shadow transition-all ${
-                showGuides
-                  ? "translate-x-4 bg-sky-400"
-                  : "translate-x-0 bg-neutral-500"
-              }`}
-            />
-          </button>
-        </div>
-      </Section>
-
-      <Section title="অ্যারাবিক ফন্ট সাইজ" icon={Type}>
-        <GlobalSlider label="আরবি ফন্ট (বেস)" k="arabicFontPx" min={20} max={80} step={1} fallback={ARABIC_FONT_PX} unit="px" />
-        <GlobalSlider label="বাংলা ফন্ট" k="banglaFontPx" min={8} max={32} step={1} fallback={BANGLA_FONT_PX} unit="px" />
-        <div className="my-1 border-t border-neutral-800" />
-        <GlobalSlider label="আরবি Y-অফসেট" k="arabicYOffset" min={-30} max={30} step={1} fallback={0} unit="px" />
-        <GlobalSlider label="বাংলা Y-অফসেট" k="banglaYOffset" min={-30} max={30} step={1} fallback={0} unit="px" />
-        <GlobalSlider label="প্রতীক Y-অফসেট" k="symbolYOffset" min={-30} max={30} step={1} fallback={0} unit="px" />
-      </Section>
-    </div>
-  );
-}
-
-function GlobalSlider({
-  label,
-  k,
-  min,
-  max,
-  step = 1,
-  fallback,
-  unit = "px",
-}: {
-  label: string;
-  k: keyof GlobalOverrides;
-  min: number;
-  max: number;
-  step?: number;
-  fallback: number;
-  unit?: string;
-}) {
-  const value = useOverridesStore((s) => s.global[k]);
-  const setGlobal = useOverridesStore((s) => s.setGlobal);
-  const current = value ?? fallback;
-  const isOverridden = value !== undefined;
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] text-neutral-400">{label}</span>
-        <div className="flex items-center gap-1">
-          <input
-            type="number"
-            value={current}
-            min={min}
-            max={max}
-            step={step}
-            onChange={(e) => setGlobal(k, Number(e.target.value))}
-            className={`w-14 rounded border bg-neutral-800 px-1 py-0.5 text-right text-[10px] outline-none focus:border-amber-500 ${
-              isOverridden ? "border-amber-500/70 text-amber-200" : "border-neutral-700 text-neutral-200"
-            }`}
-          />
-          <span className="w-5 text-[9px] text-neutral-500">{unit}</span>
-          <button
-            onClick={() => setGlobal(k, undefined)}
-            disabled={!isOverridden}
-            title="রিসেট"
-            className="rounded p-0.5 text-neutral-500 hover:text-amber-300 disabled:opacity-30"
-          >
-            <RotateCcw className="h-3 w-3" />
-          </button>
-        </div>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={current}
-        onChange={(e) => setGlobal(k, Number(e.target.value))}
-        className="w-full accent-amber-500"
-      />
-    </div>
-  );
-}
 
 function FontPanel() {
   const { fonts, activeId, setActiveId, uploadFont } = useFont();
@@ -425,23 +282,45 @@ function Placeholder({ title }: { title: string }) {
 function ExportPanel({ page }: { page?: PageData }) {
   const totalPages = useReflowStore((s) => s.pages.length);
   const [exporting, setExporting] = useState(false);
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
 
-  const handlePrintCurrent = () => {
-    // Focus and print just the artboard area
+  const handlePrintCurrent = async () => {
     setExporting(true);
-    setTimeout(() => {
-      window.print();
+    try {
+      const artboard = document.getElementById("quran-artboard");
+      if (!artboard) {
+        alert("আর্টবোর্ড খুঁজে পাওয়া যায়নি!");
+        return;
+      }
+      
+      const canvas = await html2canvas(artboard, {
+        scale: 2, // High resolution
+        useCORS: true,
+        logging: false
+      });
+      
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4"
+      });
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`quran-page-${page?.footer.pageNo || 'export'}.pdf`);
+    } catch (err) {
+      console.error(err);
+      alert("PDF তৈরিতে সমস্যা হয়েছে।");
+    } finally {
       setExporting(false);
-    }, 100);
+    }
   };
 
   const handlePrintAll = () => {
-    if (!confirm(`সব ${totalPages}টি পেজ প্রিন্ট/PDF রপ্তানি করবেন?`)) return;
-    setExporting(true);
-    setTimeout(() => {
-      window.print();
-      setExporting(false);
-    }, 100);
+    setBatchModalOpen(true);
   };
 
   return (
@@ -481,7 +360,7 @@ function ExportPanel({ page }: { page?: PageData }) {
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 py-2 text-[11px] font-bold text-amber-300 hover:bg-amber-500/20 disabled:opacity-60 transition-colors"
         >
           <Download className="h-3.5 w-3.5" />
-          {exporting ? "প্রিন্ট হচ্ছে…" : `সব ${totalPages}টি পেজ প্রিন্ট/PDF`}
+          সব {totalPages}টি পেজ PDF রপ্তানি
         </button>
       </Section>
 
@@ -505,6 +384,9 @@ function ExportPanel({ page }: { page?: PageData }) {
           </li>
         </ul>
       </Section>
+
+      <BatchExportModal open={batchModalOpen} onOpenChange={setBatchModalOpen} />
     </div>
   );
 }
+

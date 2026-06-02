@@ -7,6 +7,7 @@ import type { TopSymbolId } from "./svgMap";
 export type TajweedMatch = {
   charIndex: number;
   symbol: TopSymbolId;
+  subRule?: string;
 };
 
 /* ---------------- character classes ---------------- */
@@ -23,6 +24,8 @@ const TASHKEEL = {
   SHADDA: "\u0651",
   SUKUN: "\u0652",
   DAGGER_ALIF: "\u0670",
+  DAGGER_KASRA: "\u0656",
+  INVERTED_DAMMA: "\u0657",
 };
 const SHORT_VOWELS = [TASHKEEL.FATHA, TASHKEEL.KASRA, TASHKEEL.DAMMA];
 const TANWEEN = new Set([TASHKEEL.FATHATAN, TASHKEEL.KASRATAN, TASHKEEL.DAMMATAN]);
@@ -39,6 +42,16 @@ const IKHFA = new Set([
   "\u062A", "\u062B", "\u062C", "\u062F", "\u0630", "\u0632", "\u0633",
   "\u0634", "\u0635", "\u0636", "\u0637", "\u0638", "\u0641", "\u0642", "\u0643",
 ]);
+const ISTILA_TAGS: Record<string, string> = {
+  "\u0635": "9:1", // ص
+  "\u0636": "9:2", // ض
+  "\u0637": "9:3", // ط
+  "\u0638": "9:4", // ظ
+  "\u0642": "9:5", // ق
+  "\u063A": "9:6", // غ
+  "\u062E": "9:7", // خ
+  "\u0631": "9:8", // ر
+};
 const NOON = "\u0646";
 const MEEM = "\u0645";
 const YAA = "\u064A";
@@ -164,8 +177,8 @@ function maddAt(clusters: Cluster[], k: number): MaddInfo | null {
   const c = clusters[k];
   const prev = clusters[k - 1];
 
-  // Dagger alif sits directly on its consonant → carrier is c itself.
-  if (has(c, TASHKEEL.DAGGER_ALIF)) {
+  // Dagger alif, dagger kasra, inverted damma sit directly on their consonant → carrier is c itself.
+  if (has(c, TASHKEEL.DAGGER_ALIF) || has(c, TASHKEEL.DAGGER_KASRA) || has(c, TASHKEEL.INVERTED_DAMMA)) {
     return { clusterIdx: k, carrier: c, word: c.word };
   }
 
@@ -225,11 +238,11 @@ function wordIsBeforeWaqf(text: string, clusters: Cluster[], lastClusterIdxInWor
 export function detectTajweed(text: string): TajweedMatch[] {
   if (!text) return [];
   const clusters = clusterize(text);
-  const matches = new Map<number, TopSymbolId>();
+  const matches = new Map<number, { symbol: TopSymbolId; subRule?: string }>();
 
-  const set = (idx: number, id: TopSymbolId) => {
+  const set = (idx: number, id: TopSymbolId, subRule?: string) => {
     const cur = matches.get(idx);
-    if (cur === undefined || id < cur) matches.set(idx, id);
+    if (cur === undefined || id < cur.symbol) matches.set(idx, { symbol: id, subRule });
   };
 
   // ---- pre-compute madd info and group by word ----
@@ -238,7 +251,7 @@ export function detectTajweed(text: string): TajweedMatch[] {
   for (let k = 0; k < clusters.length; k++) {
     lastClusterOfWord.set(clusters[k].word, k);
     const m = maddAt(clusters, k);
-    if (m && !isLafzAllah(text, clusters[k])) madds.push(m);
+    if (m) madds.push(m);
   }
   // For each word, the cluster-index of the LAST madd in that word.
   const lastMaddOfWord = new Map<number, number>();
@@ -294,7 +307,21 @@ export function detectTajweed(text: string): TajweedMatch[] {
     }
 
     // Default — Madd Asli. Rule 1.
-    set(m.carrier.index, 1);
+    let tag: string | undefined = undefined;
+    if (has(c, TASHKEEL.DAGGER_ALIF)) {
+      tag = has(c, TASHKEEL.SHADDA) ? "1:8" : "1:6"; // তাশদীদ + খাড়া জবর : খাড়া জবর
+    } else if (has(c, TASHKEEL.DAGGER_KASRA)) {
+      tag = has(c, TASHKEEL.SHADDA) ? "1:9" : "1:2"; // তাশদীদ + খাড়া জের : খাড়া জের
+    } else if (has(c, TASHKEEL.INVERTED_DAMMA)) {
+      tag = has(c, TASHKEEL.SHADDA) ? "1:10" : "1:4"; // তাশদীদ + উল্টা পেশ : উল্টা পেশ
+    } else if (c.base === ALIF && has(m.carrier, TASHKEEL.FATHA)) {
+      tag = has(m.carrier, TASHKEEL.SHADDA) ? "1:11" : "1:5"; // তাশদীদ + জবরের বামে আলিফ : জবরের বামে আলিফ
+    } else if ((c.base === YAA || c.base === ALIF_MAKSURA) && has(m.carrier, TASHKEEL.KASRA)) {
+      tag = has(m.carrier, TASHKEEL.SHADDA) ? "1:12" : "1:1"; // তাশদীদ + জেরের বামে ইয়া : জেরের বামে ইয়া সাকিন
+    } else if (c.base === WAW && has(m.carrier, TASHKEEL.DAMMA)) {
+      tag = has(m.carrier, TASHKEEL.SHADDA) ? "1:13" : "1:3"; // তাশদীদ + পেশের বামে ওয়াও : পেশের বামে ওয়াও সাকিন
+    }
+    set(m.carrier.index, 1, tag);
   }
 
   // ---- per-cluster rules (Layn, Qalqalah, Ghunnah, Ikhfa, Iwad, last-letter) ----
@@ -345,6 +372,8 @@ export function detectTajweed(text: string): TajweedMatch[] {
         set(next.index, 7);
       } else if (IKHFA.has(next.base)) {
         set(c.index, 11);
+      } else if (next.base === "\u0628") { // Iqlab (Ba)
+        set(c.index, 10);
       }
     }
 
@@ -353,9 +382,15 @@ export function detectTajweed(text: string): TajweedMatch[] {
     if (isLastOfWord && isStopAfter(text, c, nextRawStart(clusters, k))) {
       set(c.index, 12);
     }
+    
+    // Rule 9 — Isti'la letters & Raa (ص ض ط ظ ق غ خ + ر) with Fatha
+    const istilaTag = ISTILA_TAGS[c.base];
+    if (istilaTag && has(c, TASHKEEL.FATHA)) {
+      set(c.index, 9, istilaTag);
+    }
   }
 
   return [...matches.entries()]
-    .map(([charIndex, symbol]) => ({ charIndex, symbol }))
+    .map(([charIndex, data]) => ({ charIndex, symbol: data.symbol, subRule: data.subRule }))
     .sort((a, b) => a.charIndex - b.charIndex);
 }

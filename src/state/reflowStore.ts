@@ -9,7 +9,11 @@ import {
   BANGLA_FONT_PX,
   type PageData,
 } from "@/data/pages";
-import { useOverridesStore, MASTER_DEFAULTS } from "@/state/overridesStore";
+import { useOverridesStore } from "@/state/overridesStore";
+import { indexPageWords, buildWordRefIndex } from "@/lib/quranIndex";
+import { computeSurahLineMap, type SurahLineMap } from "@/lib/surahLineTracker";
+import { templateToGlobalDefaults } from "@/lib/templateUtils";
+import { useTemplateStore } from "@/state/templateStore";
 
 export type PageDistribution = {
   pageId: string;
@@ -31,6 +35,8 @@ export type BuildProgress = {
 type ReflowState = {
   pages: PageData[];
   distribution: PageDistribution[];
+  surahLineMap: SurahLineMap;
+  getSurahLineEntry: (surahNum: number) => import("@/lib/surahLineTracker").SurahLineEntry | undefined;
   status: "idle" | "loading" | "ready";
   /** Null when no build is in progress */
   buildProgress: BuildProgress | null;
@@ -44,6 +50,11 @@ type ReflowState = {
   /** Optimistic: idle-scheduled single-page rebuild for instant feedback. */
   rebuildPage: (pageId: string) => void;
   setIsReflowing: (v: boolean) => void;
+  injectPage: (afterPageId: string) => void;
+  removePage: (pageId: string) => boolean;
+  shiftQuranForward: (fromPageId: string, rowCount: number) => void;
+  measurementCache: Map<string, any>;
+  setMeasurementCache: (key: string, value: any) => void;
 };
 
 function computeDistribution(pages: PageData[]): PageDistribution[] {
@@ -123,12 +134,26 @@ function collectRowFontOverrides(): Record<string, number> {
 export const useReflowStore = create<ReflowState>((set, get) => ({
   pages: pagesSync,
   distribution: computeDistribution(pagesSync),
+  surahLineMap: new Map(),
+  getSurahLineEntry: (surahNum) => get().surahLineMap.get(surahNum),
   status: "idle",
   buildProgress: null,
   isReflowing: false,
   signature: "",
   versesReady: false,
   rebuilding: false,
+  measurementCache: new Map(),
+  setMeasurementCache: (key, value) => {
+    set((state) => {
+      const next = new Map(state.measurementCache);
+      if (next.size > 500) { // simple LRU cleanup
+        const firstKey = next.keys().next().value;
+        if (firstKey) next.delete(firstKey);
+      }
+      next.set(key, value);
+      return { measurementCache: next };
+    });
+  },
   setIsReflowing: (v) => set({ isReflowing: v }),
 
   init: async () => {
@@ -164,12 +189,137 @@ export const useReflowStore = create<ReflowState>((set, get) => ({
    * Called from PropertiesPanel / Inspector when the user adjusts a value
    * that affects only the active page (e.g. per-row font size override).
    */
+  injectPage: (afterPageId) => {
+    const pages = get().pages;
+    const idx = pages.findIndex((p) => p.id === afterPageId);
+    if (idx < 0) return;
+    const source = pages[idx]!;
+    const injected = structuredClone(source) as PageData;
+    injected.id = `${afterPageId}-dyn-${Date.now()}`;
+    injected.type = "continuous";
+    injected.lines = Array.from({ length: 9 }, () => ({ slotKind: "blank", blocks: [] }));
+    const nextPages = [...pages.slice(0, idx + 1), injected, ...pages.slice(idx + 1)];
+    set({ pages: nextPages, distribution: computeDistribution(nextPages) });
+  },
+
+  removePage: (pageId) => {
+    const pages = get().pages;
+    const page = pages.find((p) => p.id === pageId);
+    if (!page || page.type === "surah-open" || !page.id.includes("-dyn-")) return false;
+    const hasContent = page.lines.some((line) => {
+      if (line.slotKind === "blank" || line.slotKind === "surah-open") return false;
+      return Boolean(line.arabicLine || line.banglaLine || line.blocks.length || line.markers?.length);
+    });
+    if (hasContent) return false;
+    const nextPages = pages.filter((p) => p.id !== pageId);
+    set({ pages: nextPages, distribution: computeDistribution(nextPages) });
+    return true;
+  },
+
+  shiftQuranForward: (fromPageId, rowCount) => {
+    const pages = get().pages;
+    const startIndex = pages.findIndex(p => p.id === fromPageId);
+    if (startIndex < 0) return;
+
+    // Extract all lines from startIndex to end into a single flat array
+    const flatLines: any[] = [];
+    for (let i = startIndex; i < pages.length; i++) {
+      flatLines.push(...pages[i].lines);
+    }
+
+    // Insert empty rows to shift everything down
+    const insertedLines = Array.from({ length: rowCount }, () => ({
+      slotKind: "blank",
+      blocks: []
+    }));
+    flatLines.unshift(...insertedLines);
+
+    // Reconstruct the pages
+    const newPages = [...pages];
+    let lineIdx = 0;
+    for (let i = startIndex; i < newPages.length; i++) {
+      const page = { ...newPages[i] };
+      page.lines = flatLines.slice(lineIdx, lineIdx + 9);
+      lineIdx += 9;
+      newPages[i] = page as any;
+    }
+
+    // Create new pages if there are leftover lines
+    let lastPageNo = parseInt(newPages[newPages.length - 1].id.replace(/\D/g, "")) || newPages.length;
+    while (lineIdx < flatLines.length) {
+      lastPageNo++;
+      const leftover = flatLines.slice(lineIdx, lineIdx + 9);
+      while (leftover.length < 9) leftover.push({ slotKind: "blank", blocks: [] });
+      const lastP = newPages[newPages.length - 1] as any;
+      newPages.push({
+        id: `vpage-${lastPageNo}`,
+        type: "continuous",
+        header: lastP.header ? { ...lastP.header } : undefined,
+        lines: leftover,
+        footer: { ...(lastP.footer || {}), pageNo: String(lastPageNo) }
+      } as any);
+      lineIdx += 9;
+    }
+
+    // Shift the localMap overrides
+    const s = useOverridesStore.getState();
+    const newLocal = { ...s.local };
+    
+    const getPageIdx = (id: string) => pages.findIndex(p => p.id === id);
+
+    const oldKeyToNewKey = (key: string): string | null => {
+       const match = key.match(/^(layer|row):([^:]+):(\d+)(.*)$/);
+       if (!match) return key;
+       const prefix = match[1];
+       const pageId = match[2];
+       const rowNum = parseInt(match[3]);
+       const suffix = match[4];
+
+       const pIdx = getPageIdx(pageId);
+       if (pIdx < 0 || pIdx < startIndex) return key;
+
+       const oldFlatIndex = (pIdx - startIndex) * 9 + rowNum;
+       const newFlatIndex = oldFlatIndex + rowCount;
+
+       const newPIdx = startIndex + Math.floor(newFlatIndex / 9);
+       const newRIdx = newFlatIndex % 9;
+
+       if (newPIdx >= newPages.length) return null;
+       const newPageId = newPages[newPIdx].id;
+
+       return `${prefix}:${newPageId}:${newRIdx}${suffix}`;
+    };
+
+    const finalLocal: Record<string, any> = {};
+    for (const key of Object.keys(newLocal)) {
+       if (!key.startsWith("layer:") && !key.startsWith("row:")) {
+           finalLocal[key] = newLocal[key];
+           continue;
+       }
+       const newKey = oldKeyToNewKey(key);
+       if (newKey) {
+           finalLocal[newKey] = newLocal[key];
+       }
+    }
+    useOverridesStore.setState({ local: finalLocal });
+
+    set({ pages: newPages as any, distribution: computeDistribution(newPages as any) });
+  },
+
   rebuildPage: (pageId: string) => {
+    const template = (() => {
+      try {
+        return useTemplateStore.getState().getActiveTemplate();
+      } catch {
+        return null;
+      }
+    })();
     const g = useOverridesStore.getState().global;
     const opts = {
-      arabicFontPx: g.arabicFontPx ?? MASTER_DEFAULTS.arabicFontPx ?? ARABIC_FONT_PX,
-      banglaFontPx: g.banglaFontPx ?? MASTER_DEFAULTS.banglaFontPx ?? BANGLA_FONT_PX,
+      arabicFontPx: g.arabicFontPx ?? template?.typography.arabicFontPx ?? ARABIC_FONT_PX,
+      banglaFontPx: g.banglaFontPx ?? template?.typography.banglaFontPx ?? BANGLA_FONT_PX,
       rowFontOverrides: collectRowFontOverrides(),
+      template: template ?? undefined,
     };
 
     const currentPages = get().pages;
@@ -193,7 +343,8 @@ export const useReflowStore = create<ReflowState>((set, get) => ({
       const updatedPage = allPages.find((p) => p.id === pageId);
       if (!updatedPage) return;
       const newPages = pages.map((p) => (p.id === pageId ? updatedPage : p));
-      set({ pages: newPages, distribution: computeDistribution(newPages) });
+      const surahLineMap = computeSurahLineMap(newPages, computeDistribution(newPages));
+      set({ pages: newPages, distribution: computeDistribution(newPages), surahLineMap });
     });
   },
 
@@ -208,11 +359,19 @@ export const useReflowStore = create<ReflowState>((set, get) => ({
    * 4. When all chunks are done → commit to state.
    */
   rebuild: () => {
+    const template = (() => {
+      try {
+        return useTemplateStore.getState().getActiveTemplate();
+      } catch {
+        return null;
+      }
+    })();
     const g = useOverridesStore.getState().global;
     const opts = {
-      arabicFontPx: g.arabicFontPx ?? MASTER_DEFAULTS.arabicFontPx ?? ARABIC_FONT_PX,
-      banglaFontPx: g.banglaFontPx ?? MASTER_DEFAULTS.banglaFontPx ?? BANGLA_FONT_PX,
+      arabicFontPx: g.arabicFontPx ?? template?.typography.arabicFontPx ?? ARABIC_FONT_PX,
+      banglaFontPx: g.banglaFontPx ?? template?.typography.banglaFontPx ?? BANGLA_FONT_PX,
       rowFontOverrides: collectRowFontOverrides(),
+      template: template ?? undefined,
     };
     const sig = computeSignature();
 
@@ -239,9 +398,11 @@ export const useReflowStore = create<ReflowState>((set, get) => ({
       .then((pages) => {
         if (abort.signal.aborted) return;
         if (sig !== computeSignature()) return; // stale — newer rebuild will commit
+        const surahLineMap = computeSurahLineMap(pages, computeDistribution(pages));
         set({
           pages,
           distribution: computeDistribution(pages),
+          surahLineMap,
           signature: sig,
           rebuilding: false,
           buildProgress: null,
@@ -265,6 +426,14 @@ let currentRebuildAbort: AbortController | null = null;
  */
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 if (typeof window !== "undefined") {
+  // Initialize Quran word ref index and index initial pagesSync pages
+  try {
+    buildWordRefIndex();
+    indexPageWords(pagesSync);
+  } catch (e) {
+    console.error("Failed to build initial quranIndex", e);
+  }
+
   useOverridesStore.subscribe(() => {
     const next = computeSignature();
     if (next === useReflowStore.getState().signature) return;
@@ -276,5 +445,14 @@ if (typeof window !== "undefined") {
         useReflowStore.getState().rebuild();
       }
     }, 400); // 400ms debounce — won't rebuild while slider is dragging
+  });
+
+  // Keep page word map in sync whenever pages change (e.g. after reflow/rebuild)
+  useReflowStore.subscribe((state) => {
+    try {
+      indexPageWords(state.pages);
+    } catch (e) {
+      console.error("Failed to re-index page words", e);
+    }
   });
 }

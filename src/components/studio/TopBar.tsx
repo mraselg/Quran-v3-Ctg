@@ -15,7 +15,7 @@ const SHORTCUT_GROUPS = [
       { key: "Space + Drag", desc: "Canvas প্যান করুন" },
       { key: "Ctrl + Scroll", desc: "Zoom in / out" },
       { key: "[ / ]", desc: "Zoom -10% / +10%" },
-      { key: "F", desc: "Fit to window (85%)" },
+      { key: "F", desc: "Fit to Page" },
     ],
   },
   {

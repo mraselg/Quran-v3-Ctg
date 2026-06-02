@@ -14,6 +14,8 @@ export type GuardOptions = {
   action: () => void | Promise<void>;
   /** Optional progress label (Bengali). */
   label?: string;
+  /** Optional callback if the user cancels the dialog. */
+  onCancel?: () => void;
 };
 
 type Pending = {
@@ -21,6 +23,7 @@ type Pending = {
   estimatedRows: number;
   label: string;
   action: () => void | Promise<void>;
+  onCancel?: () => void;
 };
 
 const DEFAULT_THRESHOLD = 20;
@@ -70,6 +73,7 @@ export function useLargeChangeGuard(): {
         estimatedRows: opts.estimatedRows,
         label,
         action: opts.action,
+        onCancel: opts.onCancel,
       };
 
       if (!requiresDialog) {
@@ -94,7 +98,11 @@ export function useLargeChangeGuard(): {
       setPending(null);
       if (p) void run(p);
     },
-    onCancel: () => setPending(null),
+    onCancel: () => {
+      const p = pending;
+      setPending(null);
+      if (p?.onCancel) p.onCancel();
+    },
   };
 
   return { request, dialogProps };

@@ -24,8 +24,17 @@ import { toast } from "sonner";
 import { reflowLayerText } from "./textReflow";
 import type { ReflowLayer } from "./reflowScope";
 
-/** Artboard display width minus FabricLines side padding (8+8). */
-export const ARTBOARD_TEXT_WIDTH = 780 - 16;
+import { useTemplateStore } from "@/state/templateStore";
+import { getGridWidthPx } from "@/lib/templateUtils";
+
+export function getArtboardTextWidth(): number {
+  try {
+    const template = useTemplateStore.getState().getActiveTemplate();
+    return getGridWidthPx(template);
+  } catch {
+    return 780 - 16; // safe fallback
+  }
+}
 
 export const DEFAULT_BANGLA_FONT_FAMILY =
   "'Kalpurush', 'Noto Serif Bengali', serif";
@@ -164,8 +173,12 @@ function readFontPxFromStore(layerK: string, layer: ReflowLayer): number {
   const s = useOverridesStore.getState();
   const ov = s.local[layerK];
   if (typeof ov?.fontPx === "number") return ov.fontPx;
-  if (layer === "arabic") return s.global.arabicFontPx ?? MASTER_DEFAULTS.arabicFontPx ?? 50;
-  return s.global.banglaFontPx ?? MASTER_DEFAULTS.banglaFontPx ?? 18;
+  return getLayerFontPx(layer);
 }
 
-
+export function getLayerFontPx(layer: "arabic" | "bangla"): number {
+  const s = useOverridesStore.getState();
+  const tmpl = useTemplateStore.getState().getActiveTemplate();
+  if (layer === "arabic") return s.global.arabicFontPx ?? tmpl.typography.arabicFontPx;
+  return s.global.banglaFontPx ?? tmpl.typography.banglaFontPx;
+}

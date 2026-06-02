@@ -15,15 +15,17 @@ export const SlimHeader = memo(function SlimHeader({ para, title, chapter }: Pro
       }}
     >
       <div
+        suppressHydrationWarning
         className="flex min-w-[60px] items-center justify-center border-r border-neutral-900 px-2"
         style={{ borderRightWidth: 1.5 }}
       >
         {para}
       </div>
-      <div className="flex flex-1 items-center justify-center px-2 text-center leading-tight">
+      <div suppressHydrationWarning className="flex flex-1 items-center justify-center px-2 text-center leading-tight">
         {title}
       </div>
       <div
+        suppressHydrationWarning
         className="flex min-w-[60px] items-center justify-center border-l border-neutral-900 px-2"
         style={{ borderLeftWidth: 1.5 }}
       >

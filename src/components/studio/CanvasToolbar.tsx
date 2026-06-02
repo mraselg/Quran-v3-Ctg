@@ -44,6 +44,8 @@ type Props = {
   rightOpen?: boolean;
   onToggleLeft?: () => void;
   onToggleRight?: () => void;
+  onFitPage?: () => void;
+  onFitWidth?: () => void;
 };
 
 export function CanvasToolbar({
@@ -58,6 +60,8 @@ export function CanvasToolbar({
   rightOpen = true,
   onToggleLeft,
   onToggleRight,
+  onFitPage,
+  onFitWidth,
 }: Props) {
   const clamp = (z: number) => Math.max(25, Math.min(300, Math.round(z)));
   const editMode = useEditorStore((s) => s.editMode);
@@ -213,63 +217,70 @@ export function CanvasToolbar({
       </div>
 
       {/* ── Center ── */}
-      {editMode ? (
-        <div className="flex items-center gap-1">
-          <span className="mr-1 text-[10px] uppercase tracking-wider text-neutral-600">প্রয়োগ</span>
-          {SCOPES.map((s) => (
-            <button
-              key={s}
-              onClick={() => setScope(s)}
-              title={SCOPE_META[s].labelBn}
-              className="rounded px-2 py-1 text-[11px] font-semibold transition-all"
-              style={scope === s
-                ? { background: `${SCOPE_META[s].color}22`, border: `1px solid ${SCOPE_META[s].color}55`, color: SCOPE_META[s].color }
-                : { background: "#1a1a1a", border: "1px solid #262626", color: "#525252" }
-              }
-            >
-              {SCOPE_META[s].labelBn}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="flex items-center gap-1">
-          <ToolBtn onClick={() => setZoom(clamp(zoom - 10))} title="Zoom out ([)"><Minus className="h-3.5 w-3.5" /></ToolBtn>
+      <div className="flex items-center gap-4">
+        {editMode && (
+          <div className="flex items-center gap-1 border-r border-neutral-800 pr-4">
+            <span className="mr-1 text-[10px] uppercase tracking-wider text-neutral-600">প্রয়োগ</span>
+            {SCOPES.map((s) => (
+              <button
+                key={s}
+                onClick={() => setScope(s)}
+                title={SCOPE_META[s].labelBn}
+                className="rounded px-2 py-1 text-[11px] font-semibold transition-all"
+                style={scope === s
+                  ? { background: `${SCOPE_META[s].color}22`, border: `1px solid ${SCOPE_META[s].color}55`, color: SCOPE_META[s].color }
+                  : { background: "#1a1a1a", border: "1px solid #262626", color: "#525252" }
+                }
+              >
+                {SCOPE_META[s].labelBn}
+              </button>
+            ))}
+          </div>
+        )}
 
-          {/* Clickable zoom display — click to type exact % */}
-          {zoomEditing ? (
-            <input
-              ref={zoomInputRef}
-              type="number"
-              min={25}
-              max={300}
-              value={zoomInput}
-              onChange={(e) => setZoomInput(e.target.value)}
-              onBlur={commitZoomEdit}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitZoomEdit();
-                if (e.key === "Escape") setZoomEditing(false);
-              }}
-              className="w-[52px] rounded-md border border-amber-500/60 bg-neutral-800 px-1 py-1 text-center text-xs font-bold tabular-nums text-amber-200 outline-none focus:border-amber-400"
-            />
-          ) : (
-            <button
-              onClick={startZoomEdit}
-              title="클릭해서 줌 직접 입력"
-              className="min-w-[52px] rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-center text-xs font-bold tabular-nums text-neutral-200 hover:border-amber-500/40 hover:text-amber-200 transition-colors"
-            >
-              {zoom}%
-            </button>
-          )}
+        {!editMode && (
+          <div className="flex items-center gap-1">
+            <ToolBtn onClick={() => setZoom(clamp(zoom - 10))} title="Zoom out ([)"><Minus className="h-3.5 w-3.5" /></ToolBtn>
 
-          <ToolBtn onClick={() => setZoom(clamp(zoom + 10))} title="Zoom in (])"><Plus className="h-3.5 w-3.5" /></ToolBtn>
-          <button onClick={() => setZoom(85)} className="ml-1 flex items-center gap-1 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-[11px] text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-neutral-100" title="ফিট করুন (F)">
-            <Maximize2 className="h-3 w-3" />ফিট
-          </button>
-          <button onClick={() => setZoom(100)} className="flex items-center gap-1 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-[11px] text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-neutral-100" title="100%">
-            <ZoomIn className="h-3 w-3" />1:1
-          </button>
-        </div>
-      )}
+            {/* Clickable zoom display — click to type exact % */}
+            {zoomEditing ? (
+              <input
+                ref={zoomInputRef}
+                type="number"
+                min={25}
+                max={300}
+                value={zoomInput}
+                onChange={(e) => setZoomInput(e.target.value)}
+                onBlur={commitZoomEdit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitZoomEdit();
+                  if (e.key === "Escape") setZoomEditing(false);
+                }}
+                className="w-[52px] rounded-md border border-amber-500/60 bg-neutral-800 px-1 py-1 text-center text-xs font-bold tabular-nums text-amber-200 outline-none focus:border-amber-400"
+              />
+            ) : (
+              <button
+                onClick={startZoomEdit}
+                title="ক্লিক করে পার্সেন্টেজ লিখুন"
+                className="min-w-[52px] rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-center text-xs font-bold tabular-nums text-neutral-200 hover:border-amber-500/40 hover:text-amber-200 transition-colors"
+              >
+                {zoom}%
+              </button>
+            )}
+
+            <ToolBtn onClick={() => setZoom(clamp(zoom + 10))} title="Zoom in (])"><Plus className="h-3.5 w-3.5" /></ToolBtn>
+            <button onClick={onFitPage} className="ml-1 flex items-center gap-1 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-[11px] text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-neutral-100" title="ফিট টু পেজ (F)">
+              <Maximize2 className="h-3 w-3" />পেজ
+            </button>
+            <button onClick={onFitWidth} className="flex items-center gap-1 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-[11px] text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-neutral-100" title="ফিট টু ক্যানভাস">
+              <PanelLeft className="h-3 w-3" />ক্যানভাস
+            </button>
+            <button onClick={() => setZoom(100)} className="flex items-center gap-1 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-[11px] text-neutral-300 transition-colors hover:bg-neutral-700 hover:text-neutral-100" title="100%">
+              <ZoomIn className="h-3 w-3" />1:1
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* ── Right ── */}
       <div className="flex items-center gap-1">

@@ -13,29 +13,60 @@ import type { FabricLine } from "@/components/studio/FabricLines";
 import type { LocalOverride } from "@/state/overridesStore";
 import { measureTextWidthCanvas, splitToFitCanvas, splitToFitForLayer, splitToFitArea } from "./canvasMeasure";
 import { calculateAreaTextHeight } from "./areaTextHeight";
+import { measureAreaTextAsync } from "./textMeasure/measureWorkerBridge";
+import { useTemplateStore } from "@/state/templateStore";
+import { KARIANA_TEMPLATE } from "@/data/defaultTemplate";
 
 export type LayerKind = "arabic" | "bangla";
+
+function getActiveTemplate(): import("@/types/template").MasterTemplate {
+  try {
+    return useTemplateStore.getState().getActiveTemplate();
+  } catch {
+    // Fallback for SSR / test environments
+    return KARIANA_TEMPLATE;
+  }
+}
 
 /**
  * Maps a raw PageData into the 9 DOM slots exactly as Artboard.tsx does.
  */
 export function getDomSlots(page: any): FabricLine[] {
-  const slots: FabricLine[] = Array.from({ length: 9 }, () => ({}));
+  const tmpl = getActiveTemplate();
+  const linesPerPage = tmpl.linesPerPage;
+  const surahOpenStartAt = tmpl.surahOpen.startAt;
+  const surahOpenSpan = tmpl.surahOpen.headerSpan;
+
+  const slots: FabricLine[] = Array.from({ length: linesPerPage }, () => ({}));
   if (!page || !page.lines) return slots;
   
   const isOpen = page.type === "surah-open";
-  const startAt = isOpen ? 3 : 0;
+  const startAt = isOpen ? surahOpenStartAt : 0;
+  const skipSlots = new Set<number>();
   
-  page.lines.slice(0, 9 - startAt).forEach((l: any, i: number) => {
+  page.lines.slice(0, linesPerPage - startAt).forEach((l: any, i: number) => {
     const idx = startAt + i;
-    if (l.slotKind === "surah-open" && l.surahOpen) return;
-    if (l.slotKind === "blank") return;
+    if (l.slotKind === "surah-open" && l.surahOpen) {
+      for (let k = 0; k < surahOpenSpan; k++) {
+        skipSlots.add(idx + k);
+      }
+      return;
+    }
     slots[idx] = {
       arabic: l.arabicLine ?? (l.blocks || []).map((b: any) => b.arabic).join(" "),
       bangla: l.banglaLine ?? (l.blocks || []).map((b: any) => b.bangla).filter(Boolean).join(" "),
       symbol: (l.markers ?? []).join("  "),
+      pronunciation: l.pronunciationLine ?? (l.blocks || []).map((b: any) => b.pronunciation ?? b.bn).filter(Boolean).join(" "),
+      meaning: l.meaningLine ?? (l.blocks || []).map((b: any) => b.meaning ?? b.t_bn).filter(Boolean).join(" "),
     };
   });
+
+  for (let i = startAt; i < linesPerPage; i++) {
+    if (!skipSlots.has(i) && slots[i].arabic === undefined) {
+      slots[i] = { arabic: "", bangla: "", symbol: "" };
+    }
+  }
+
   return slots;
 }
 
@@ -61,9 +92,12 @@ export function findNextValidRow(pi: number, ri: number, pages: any[], layer: La
 export function findPrevValidRow(pi: number, ri: number, pages: any[], layer: LayerKind) {
   let searchPi = pi;
   let searchRi = ri - 1;
+  const tmpl = getActiveTemplate();
+  const linesPerPage = tmpl.linesPerPage;
+  
   while (searchPi >= 0) {
     const page = pages[searchPi];
-    if (!page) { searchPi--; searchRi = 8; continue; }
+    if (!page) { searchPi--; searchRi = linesPerPage - 1; continue; }
     const slots = getDomSlots(page);
     if (searchRi >= slots.length) searchRi = slots.length - 1;
     while (searchRi >= 0) {
@@ -73,7 +107,7 @@ export function findPrevValidRow(pi: number, ri: number, pages: any[], layer: La
       searchRi--;
     }
     searchPi--;
-    searchRi = 8;
+    searchRi = linesPerPage - 1;
   }
   return null;
 }
@@ -93,7 +127,10 @@ function splitToFitAware(
   const textMode = localMap[lk]?.textMode ?? "point";
   const areaHeight = localMap[lk]?.areaHeight ?? null;
 
-  if (textMode === "area" && areaHeight !== null) {
+  if (textMode === "area") {
+    if (areaHeight === null) {
+      return { fits: text, overflow: "" };
+    }
     // leading in store is absolute px (e.g. 60 for 60px line height).
     // Convert to multiplier for splitToFitArea.
     const leadingPx = localMap[lk]?.leading ?? 0;
@@ -192,8 +229,8 @@ export type ReflowOptions = {
   startRowIndex: number;
   startOverflow: string;
   layer: LayerKind;
-  /** All pages in order — {id, lines}[] */
-  allPages: Array<{ id: string; lines: FabricLine[] }>;
+  /** All pages in order */
+  allPages: any[];
   localMap: Record<string, LocalOverride>;
   patchLocal: (key: string, ov: Partial<LocalOverride>) => void;
   layerKeyFn: (pageId: string, rowIndex: number, layer: LayerKind) => string;
@@ -318,18 +355,40 @@ export async function reflowFromAsync(opts: ReflowOptions): Promise<void> {
         if (layer === "bangla" && slot.bangla === undefined) continue;
 
         const lk = layerKeyFn(page.id, ri, layer);
+        const local = localMap[lk];
         const existingText =
           pi === startPageIdx && ri === startRowIndex
             ? ""
             : getEffectiveText(page.id, ri, layer, slots, localMap, layerKeyFn);
 
         const combined = existingText ? overflow + " " + existingText : overflow;
-        const { fits, overflow: newOverflow } = splitToFitAware(
-          combined, availableWidth, fontFamily, fontSize, layer, page.id, ri, localMap, layerKeyFn
-        );
+        
+        let fits: string;
+        let newOverflow: string;
+        
+        const frameType = local?.frameType ?? (local?.textMode === "area" ? "area-fixed" : "point");
+        
+        if (frameType === "area-fixed") {
+          const heightPx = local?.fixedHeight ?? local?.areaHeight ?? 100;
+          const leadingPx = local?.leading ?? 0;
+          const leadingMult = leadingPx > 0 ? leadingPx / fontSize : 1.5;
+          const res = await measureAreaTextAsync(combined, availableWidth, heightPx, fontFamily, fontSize, leadingMult);
+          fits = res.fits;
+          newOverflow = res.overflow;
+        } else {
+          const res = splitToFitAware(
+            combined, availableWidth, fontFamily, fontSize, layer, page.id, ri, localMap, layerKeyFn
+          );
+          fits = res.fits;
+          newOverflow = res.overflow;
+        }
+
         patchLocal(lk, { text: fits });
         overflow = newOverflow.trim();
-        if (overflow === "") break;
+        
+        if (overflow === "" && frameType !== "area-fixed") {
+            break;
+        }
       }
     }
   } finally {
@@ -542,6 +601,72 @@ export function collapseLineBreakBackward(opts: CollapseBackwardOptions): {
   return { merged: true, crossesPage: prevPage.id !== startPageId };
 }
 
+// Feature 1 additions
+export async function pullUpFromNextFrame(
+  frameKey: string,
+  currentText: string,
+  localMap: Record<string, LocalOverride>,
+  patchLocal: (key: string, ov: Partial<LocalOverride>) => void,
+  fontFamily: string,
+  fontSize: number,
+  availableWidth: number,
+) {
+  const local = localMap[frameKey];
+  if (local?.frameType !== 'area-fixed' || !local?.linkedNextFrameId) return;
+
+  let frameText = currentText;
+  let nextFrameId: string | undefined = local.linkedNextFrameId;
+
+  while (nextFrameId) {
+    const nextLocal: import("@/state/overridesStore").LocalOverride | undefined = localMap[nextFrameId];
+    if (!nextLocal) break;
+
+    const nextWords = (nextLocal.text ?? "").split(/\s+/).filter(Boolean);
+    if (nextWords.length === 0) break;
+
+    let pulledCount = 0;
+    for (const word of nextWords) {
+      const candidate = frameText + ' ' + word;
+      
+      const heightPx = local?.fixedHeight ?? local?.areaHeight ?? 100;
+      const leadingPx = local?.leading ?? 0;
+      const leadingMult = leadingPx > 0 ? leadingPx / fontSize : 1.5;
+      
+      const res = await measureAreaTextAsync(candidate.trim(), availableWidth, heightPx, fontFamily, fontSize, leadingMult);
+      
+      if (res.overflow) break; // does not fit
+      
+      frameText = candidate.trim();
+      pulledCount++;
+    }
+
+    if (pulledCount === 0) break;
+
+    patchLocal(frameKey, { text: frameText });
+    patchLocal(nextFrameId, { text: nextWords.slice(pulledCount).join(' ') });
+    
+    // Evaluate if we should keep pulling
+    if (pulledCount < nextWords.length) break;
+    
+    // Move to next frame if the current next frame was completely drained
+    nextFrameId = nextLocal.linkedNextFrameId;
+  }
+}
+
+export async function growAutoHeightFrame(
+  frameKey: string,
+  text: string,
+  localMap: Record<string, LocalOverride>,
+  patchLocal: (key: string, ov: Partial<LocalOverride>) => void,
+) {
+  const local = localMap[frameKey];
+  if (local?.frameType !== 'area-auto') return;
+  // Compute approximate height needed based on text length or just let CSS handle it
+  // For now, simply update the text and clear any fixed areaHeight
+  patchLocal(frameKey, { text, areaHeight: undefined });
+}
+
+
 /**
  * Gets text before and after the cursor in a contenteditable element.
  */
@@ -721,13 +846,19 @@ export type ReflowLayerTextResult = {
   /** crossesPage flag from planCascade (only meaningful when cascaded). */
   crossesPage: boolean;
   crossesSurah: boolean;
+  /** Text that did not fit inside the effective scoped pages. */
+  tailOverflow: string;
+  /** Number of pages touched by the dry-run/apply path. */
+  affectedPages: number;
+  /** Number of rows the dry-run planned to update. */
+  rowUpdates: number;
 };
 
 export type ReflowLayerTextOptions = {
   pageId: string;
   rowIndex: number;
   layer: ReflowLayer;
-  reason: "text-edit" | "typography" | "paste";
+  reason: "typing" | "text-edit" | "typography" | "paste" | "story-commit";
   fontFamily: string;
   fontSize: number;
   availableWidth: number;
@@ -770,9 +901,19 @@ export function reflowLayerText(opts: ReflowLayerTextOptions): ReflowLayerTextRe
   const localMap = useOverridesStore.getState().local;
   const patchLocal = useOverridesStore.getState().patchLocal;
 
+  const emptyResult: ReflowLayerTextResult = {
+    clipped: false,
+    cascaded: false,
+    crossesPage: false,
+    crossesSurah: false,
+    tailOverflow: "",
+    affectedPages: 0,
+    rowUpdates: 0,
+  };
+
   const startPage = pages.find((p) => p.id === pageId);
   if (!startPage) {
-    return { clipped: false, cascaded: false, crossesPage: false, crossesSurah: false };
+    return emptyResult;
   }
 
   const currentText = getEffectiveText(
@@ -799,11 +940,11 @@ export function reflowLayerText(opts: ReflowLayerTextOptions): ReflowLayerTextRe
   // Link OFF — never spill into other rows.
   if (!eff.cascade) {
     if (overflow.trim() === "") {
-      return { clipped: false, cascaded: false, crossesPage: false, crossesSurah: false };
+      return emptyResult;
     }
     // Clip to the current row; caller surfaces a toast.
     patchLocal(_layerKeyFn(pageId, rowIndex, layer), { text: fits });
-    return { clipped: true, cascaded: false, crossesPage: false, crossesSurah: false };
+    return { ...emptyResult, clipped: true, tailOverflow: overflow.trim(), affectedPages: 1, rowUpdates: 1 };
   }
 
   const scopedPages = pages.filter((p) => eff.pageIds.includes(p.id));
@@ -856,11 +997,22 @@ export function reflowLayerText(opts: ReflowLayerTextOptions): ReflowLayerTextRe
         cascaded: true,
         crossesPage: plan.crossesPage,
         crossesSurah: plan.crossesSurah,
+        tailOverflow: plan.tailOverflow,
+        affectedPages: plan.affectedPages,
+        rowUpdates: plan.rowUpdates.length,
       };
     }
 
     apply();
-    return { clipped: false, cascaded: true, crossesPage: false, crossesSurah: false };
+    return {
+      clipped: false,
+      cascaded: true,
+      crossesPage: plan.crossesPage,
+      crossesSurah: plan.crossesSurah,
+      tailOverflow: plan.tailOverflow,
+      affectedPages: plan.affectedPages,
+      rowUpdates: plan.rowUpdates.length,
+    };
   }
 
   // No overflow → try a back-fill if there is slack.
@@ -878,9 +1030,9 @@ export function reflowLayerText(opts: ReflowLayerTextOptions): ReflowLayerTextRe
       availableWidth,
       surahPageIds,
     });
-    return { clipped: false, cascaded: true, crossesPage: false, crossesSurah: false };
+    return { ...emptyResult, cascaded: true, affectedPages: 1 };
   }
 
-  return { clipped: false, cascaded: false, crossesPage: false, crossesSurah: false };
+  return emptyResult;
 }
 

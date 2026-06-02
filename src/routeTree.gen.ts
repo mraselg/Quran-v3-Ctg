@@ -11,6 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VerifyFathRouteImport } from './routes/verify-fath'
 import { Route as VerifyRouteImport } from './routes/verify'
+import { Route as TemplateBuilderRouteImport } from './routes/template-builder'
+import { Route as PrintPreviewRouteImport } from './routes/print-preview'
+import { Route as EditorRouteImport } from './routes/editor'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram/webhook'
 
@@ -22,6 +25,21 @@ const VerifyFathRoute = VerifyFathRouteImport.update({
 const VerifyRoute = VerifyRouteImport.update({
   id: '/verify',
   path: '/verify',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TemplateBuilderRoute = TemplateBuilderRouteImport.update({
+  id: '/template-builder',
+  path: '/template-builder',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrintPreviewRoute = PrintPreviewRouteImport.update({
+  id: '/print-preview',
+  path: '/print-preview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EditorRoute = EditorRouteImport.update({
+  id: '/editor',
+  path: '/editor',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -38,12 +56,18 @@ const ApiPublicTelegramWebhookRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/editor': typeof EditorRoute
+  '/print-preview': typeof PrintPreviewRoute
+  '/template-builder': typeof TemplateBuilderRoute
   '/verify': typeof VerifyRoute
   '/verify-fath': typeof VerifyFathRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/editor': typeof EditorRoute
+  '/print-preview': typeof PrintPreviewRoute
+  '/template-builder': typeof TemplateBuilderRoute
   '/verify': typeof VerifyRoute
   '/verify-fath': typeof VerifyFathRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
@@ -51,18 +75,38 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/editor': typeof EditorRoute
+  '/print-preview': typeof PrintPreviewRoute
+  '/template-builder': typeof TemplateBuilderRoute
   '/verify': typeof VerifyRoute
   '/verify-fath': typeof VerifyFathRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/verify' | '/verify-fath' | '/api/public/telegram/webhook'
+  fullPaths:
+    | '/'
+    | '/editor'
+    | '/print-preview'
+    | '/template-builder'
+    | '/verify'
+    | '/verify-fath'
+    | '/api/public/telegram/webhook'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/verify' | '/verify-fath' | '/api/public/telegram/webhook'
+  to:
+    | '/'
+    | '/editor'
+    | '/print-preview'
+    | '/template-builder'
+    | '/verify'
+    | '/verify-fath'
+    | '/api/public/telegram/webhook'
   id:
     | '__root__'
     | '/'
+    | '/editor'
+    | '/print-preview'
+    | '/template-builder'
     | '/verify'
     | '/verify-fath'
     | '/api/public/telegram/webhook'
@@ -70,6 +114,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  EditorRoute: typeof EditorRoute
+  PrintPreviewRoute: typeof PrintPreviewRoute
+  TemplateBuilderRoute: typeof TemplateBuilderRoute
   VerifyRoute: typeof VerifyRoute
   VerifyFathRoute: typeof VerifyFathRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
@@ -91,6 +138,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VerifyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/template-builder': {
+      id: '/template-builder'
+      path: '/template-builder'
+      fullPath: '/template-builder'
+      preLoaderRoute: typeof TemplateBuilderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/print-preview': {
+      id: '/print-preview'
+      path: '/print-preview'
+      fullPath: '/print-preview'
+      preLoaderRoute: typeof PrintPreviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/editor': {
+      id: '/editor'
+      path: '/editor'
+      fullPath: '/editor'
+      preLoaderRoute: typeof EditorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -110,6 +178,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  EditorRoute: EditorRoute,
+  PrintPreviewRoute: PrintPreviewRoute,
+  TemplateBuilderRoute: TemplateBuilderRoute,
   VerifyRoute: VerifyRoute,
   VerifyFathRoute: VerifyFathRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,

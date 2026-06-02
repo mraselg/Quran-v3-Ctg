@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Printer, X } from "lucide-react";
+import { Printer, X, Download } from "lucide-react";
 import { useReflowStore } from "@/state/reflowStore";
+import { exportHighDpiPdf } from "@/lib/pdfExport";
 
 type Props = {
   open: boolean;
@@ -13,6 +14,8 @@ export function QuickPublishModal({ open, onClose }: Props) {
   const [fromPage, setFromPage] = useState(1);
   const [toPage, setToPage] = useState(Math.max(1, totalPages));
   const [exporting, setExporting] = useState(false);
+  const [advancedExporting, setAdvancedExporting] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     if (open) {
@@ -25,7 +28,7 @@ export function QuickPublishModal({ open, onClose }: Props) {
 
   const clamp = (n: number) => Math.min(Math.max(1, n || 1), Math.max(1, totalPages));
   const count = Math.max(0, toPage - fromPage + 1);
-  const disabled = exporting || fromPage > toPage || totalPages === 0;
+  const disabled = exporting || advancedExporting || fromPage > toPage || totalPages === 0;
 
   const handlePrint = () => {
     setExporting(true);
@@ -50,6 +53,39 @@ export function QuickPublishModal({ open, onClose }: Props) {
       setExporting(false);
       onClose();
     }, 200);
+  };
+
+  const handleAdvancedExport = async () => {
+    setAdvancedExporting(true);
+    setProgress(0);
+    
+    // Find all artboards in the DOM and filter by page range
+    const allBoards = Array.from(document.querySelectorAll<HTMLElement>('[data-artboard="true"]'));
+    const targetBoards = allBoards.filter((el) => {
+      const n = Number(el.getAttribute("data-page-num") ?? 0);
+      return n >= fromPage && n <= toPage;
+    });
+
+    if (targetBoards.length === 0) {
+      setAdvancedExporting(false);
+      return;
+    }
+
+    try {
+      await exportHighDpiPdf({
+        elements: targetBoards,
+        scale: 4, // 300+ DPI
+        bleedMm: 3, // 3mm bleed for printing press
+        drawCropMarks: true,
+        onProgress: (curr, tot) => setProgress(Math.round((curr / tot) * 100)),
+        filename: `Quran_Pages_${fromPage}-${toPage}.pdf`,
+      });
+    } catch (e) {
+      console.error("PDF Export failed:", e);
+    } finally {
+      setAdvancedExporting(false);
+      onClose();
+    }
   };
 
   const modal = (
@@ -123,15 +159,24 @@ export function QuickPublishModal({ open, onClose }: Props) {
             </button>
           </div>
 
-          {/* Export button */}
-          <button
-            onClick={handlePrint}
-            disabled={disabled}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 py-2.5 text-sm font-bold text-neutral-950 transition-colors hover:bg-amber-400 disabled:opacity-60"
-          >
-            <Printer className="h-4 w-4" />
-            {exporting ? "প্রিন্ট হচ্ছে…" : "PDF/প্রিন্ট করুন"}
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={handlePrint}
+              disabled={disabled}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-500 py-2.5 text-sm font-bold text-neutral-950 transition-colors hover:bg-amber-400 disabled:opacity-60"
+            >
+              <Printer className="h-4 w-4" />
+              {exporting ? "প্রিন্ট হচ্ছে…" : "স্ট্যান্ডার্ড PDF/প্রিন্ট (Browser)"}
+            </button>
+            <button
+              onClick={handleAdvancedExport}
+              disabled={disabled}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 py-2.5 text-sm font-bold text-white transition-colors hover:bg-sky-500 disabled:opacity-60"
+            >
+              <Download className="h-4 w-4" />
+              {advancedExporting ? `রপ্তানি হচ্ছে… ${progress}%` : "হাই-কোয়ালিটি প্রেস PDF (300 DPI + Bleed)"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

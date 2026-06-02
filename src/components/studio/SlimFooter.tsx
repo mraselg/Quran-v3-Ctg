@@ -14,30 +14,34 @@ export const SlimFooter = memo(function SlimFooter({ data }: { data: FooterData 
       }}
     >
       <div
+        suppressHydrationWarning
         className="flex flex-1 items-center justify-center border-r border-neutral-900 px-2"
         style={{ borderRightWidth: 1.5 }}
       >
         {data.surah}
       </div>
       <div
+        suppressHydrationWarning
         className="flex min-w-[64px] items-center justify-center border-r border-neutral-900 px-2"
         style={{ borderRightWidth: 1.5 }}
       >
         {data.revelation}
       </div>
       <div
+        suppressHydrationWarning
         className="flex min-w-[40px] items-center justify-center border-r border-neutral-900 px-2"
         style={{ borderRightWidth: 1.5 }}
       >
         {data.pageNo}
       </div>
       <div
+        suppressHydrationWarning
         className="flex flex-1 items-center justify-center border-r border-neutral-900 px-2 text-center"
         style={{ borderRightWidth: 1.5 }}
       >
         {data.ayah} • {data.ruku}
       </div>
-      <div className="flex min-w-[64px] items-center justify-center px-2">{data.manzil}</div>
+      <div suppressHydrationWarning className="flex min-w-[64px] items-center justify-center px-2">{data.manzil}</div>
     </div>
   );
 });

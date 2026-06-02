@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { ARABIC_FONT_PX, BANGLA_FONT_PX } from "./FabricLines";
+import { useTemplateStore } from "@/state/templateStore";
 
 type Props = {
   surahName: string;
@@ -25,13 +25,17 @@ export const SurahOpenBlock = memo(function SurahOpenBlock({
   height,
   arabicFamily,
 }: Props) {
+  const tmpl = useTemplateStore((s) => s.getActiveTemplate());
+  const bismillahArabicFont = tmpl.typography.arabicFontPx * 0.7;
+  const bismillahBanglaFont = tmpl.typography.banglaFontPx;
+
   return (
     <div
       style={{
         position: "relative",
         width,
         height,
-        backgroundImage: "url(/templates/surah-open.svg)",
+        backgroundImage: `url(${tmpl.assets.surahOpenSvg})`,
         backgroundSize: "100% 100%",
         backgroundRepeat: "no-repeat",
       }}
@@ -78,7 +82,7 @@ export const SurahOpenBlock = memo(function SurahOpenBlock({
         <div
           dir="rtl"
           lang="ar"
-          style={{ fontFamily: arabicFamily, fontSize: ARABIC_FONT_PX * 0.7, color: "#111827", lineHeight: 1 }}
+          style={{ fontFamily: arabicFamily, fontSize: bismillahArabicFont, color: "#111827", lineHeight: 1 }}
         >
           {bismillahArabic}
         </div>
@@ -86,7 +90,7 @@ export const SurahOpenBlock = memo(function SurahOpenBlock({
           lang="bn"
           style={{
             fontFamily: "'Kalpurush', 'Noto Serif Bengali', serif",
-            fontSize: BANGLA_FONT_PX,
+            fontSize: bismillahBanglaFont,
             color: "#065f46",
             marginTop: 2,
           }}

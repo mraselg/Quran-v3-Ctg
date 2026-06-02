@@ -6,7 +6,7 @@ import type { ActiveLayerKind } from "@/state/editorStore";
 import type { LocalOverride } from "@/state/overridesStore";
 import { useOverridesStore, layerKey } from "@/state/overridesStore";
 import {
-  ARTBOARD_TEXT_WIDTH,
+  getArtboardTextWidth,
   DEFAULT_BANGLA_FONT_FAMILY,
   countTypographyTargets,
   patchTypographyScoped,
@@ -55,7 +55,7 @@ export function useTypographyPatch() {
     () => ({
       arabicFontFamily: activeFamily,
       banglaFontFamily: DEFAULT_BANGLA_FONT_FAMILY,
-      availableWidth: ARTBOARD_TEXT_WIDTH,
+      availableWidth: getArtboardTextWidth(),
     }),
     [activeFamily],
   );
@@ -103,7 +103,7 @@ export function useTypographyPatch() {
             (pid, ri, lyr) => layerKey(pid, ri, lyr as "arabic" | "bangla" | "symbol"),
             effectiveLayer === "arabic" ? activeFamily : DEFAULT_BANGLA_FONT_FAMILY,
             typeof patch.fontPx === "number" ? patch.fontPx : globalFontPx,
-            ARTBOARD_TEXT_WIDTH,
+            getArtboardTextWidth(),
           );
 
           if (overflowResult.hasOverflow) {

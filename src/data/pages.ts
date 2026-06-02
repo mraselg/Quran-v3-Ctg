@@ -1,6 +1,8 @@
 import pagesData from "./pages.json";
 import fatihaData from "./fatiha.json";
 import { packVerses, type Verse as FlowVerse } from "@/lib/quranLayout";
+import { useTemplateStore } from "@/state/templateStore";
+import { getGridWidthPx } from "@/lib/templateUtils";
 
 export type WordBlockData = {
   symbol?: string;
@@ -78,10 +80,10 @@ function bnNum(n: number | string): string {
   return String(n).replace(/\d/g, (d) => map[Number(d)]);
 }
 
-const LINES_PER_PAGE = 9;
-const BISMILLAH_AR = "بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيْمِ";
-const BISMILLAH_BN = "অসীম করুণাময় ও পরম দয়ালু আল্লাহর নামে শুরু করছি";
-const SURAH_OPEN_SPAN = 2;
+export const LINES_PER_PAGE = 9;
+export const BISMILLAH_AR = "بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيْمِ";
+export const BISMILLAH_BN = "অসীম করুণাময় ও পরম দয়ালু আল্লাহর নামে শুরু করছি";
+export const SURAH_OPEN_SPAN = 2;
 
 // Geometry constants — kept in sync with Artboard.tsx.
 // Geometry constants — kept in sync with Artboard.tsx and FabricLines.tsx.
@@ -93,7 +95,7 @@ export const SIDE_PAD_PX = 8;
 // Extra 3px safety margin absorbs sub-pixel rounding and kashida stretch
 // between canvas measurement and DOM justified rendering, so no line
 // overflows the side padding on either end.
-const GRID_W_PX = LINE_W * SCALE - 2 * SIDE_PAD_PX - 3;
+export const GRID_W_PX = LINE_W * SCALE - 2 * SIDE_PAD_PX - 3;
 export const ARABIC_FONT_PX = 50;
 const ARABIC_FAMILY = "'Excellent Arabic', 'Amiri Quran', 'Scheherazade New', serif";
 export const BANGLA_FONT_PX = 18;
@@ -110,7 +112,7 @@ function surahMeta(verses: FlowVerse[], s: number) {
   };
 }
 
-function surahOpenSlot(s: number, verses: FlowVerse[]): GridLineData {
+function surahOpenSlot(s: number, verses: FlowVerse[], bismillahArabic: string, bismillahBangla: string): GridLineData {
   const m = surahMeta(verses, s);
   return {
     slotKind: "surah-open",
@@ -121,8 +123,8 @@ function surahOpenSlot(s: number, verses: FlowVerse[]): GridLineData {
       revelation: m.revelation,
       ayah: m.ayah,
       ruku: m.ruku,
-      bismillahArabic: BISMILLAH_AR,
-      bismillahBangla: BISMILLAH_BN,
+      bismillahArabic,
+      bismillahBangla,
     },
   };
 }
@@ -136,6 +138,8 @@ export type BuildOpts = {
   banglaFontPx?: number;
   /** Per-row font overrides keyed by `row:{pageId}:{rowIndex}`. */
   rowFontOverrides?: Record<string, number>;
+  /** Active master template. If not provided, falls back to the Kariana defaults. */
+  template?: import("@/types/template").MasterTemplate;
 };
 
 export function buildPagesFromVerses(
@@ -146,8 +150,15 @@ export function buildPagesFromVerses(
   defaultMarkers: string[],
   opts: BuildOpts = {},
 ): ContinuousPage[] {
-  const arabicFontPx = opts.arabicFontPx ?? ARABIC_FONT_PX;
-  const banglaFontPx = opts.banglaFontPx ?? BANGLA_FONT_PX;
+  const tmpl = opts.template ?? useTemplateStore.getState().getActiveTemplate();
+  const linesPerPage = tmpl.linesPerPage;
+  const surahOpenSpan = tmpl.surahOpen.headerSpan;
+  const bismillahArabic = tmpl.surahOpen.bismillahArabic;
+  const bismillahBangla = tmpl.surahOpen.bismillahBangla;
+  const gridWPx = getGridWidthPx(tmpl);
+
+  const arabicFontPx = opts.arabicFontPx ?? tmpl.typography.arabicFontPx;
+  const banglaFontPx = opts.banglaFontPx ?? tmpl.typography.banglaFontPx;
   const rowOverrides = opts.rowFontOverrides ?? {};
 
   const queue = verses.filter((v) => v.id >= startVerseId);
@@ -169,7 +180,7 @@ export function buildPagesFromVerses(
 
   const flushPage = (pad = true) => {
     if (pageSlots.length === 0) return;
-    if (pad) while (pageSlots.length < LINES_PER_PAGE) pageSlots.push(blankSlot());
+    if (pad) while (pageSlots.length < linesPerPage) pageSlots.push(blankSlot());
     const m = surahMeta(verses, pageSurah);
     pages.push({
       id: `vpage-${pageNo}`,
@@ -204,10 +215,12 @@ export function buildPagesFromVerses(
 
     // Insert surah-open block when crossing into a new surah (not for the very first group).
     if (grp.s !== prevSurah) {
-      const remaining = LINES_PER_PAGE - pageSlots.length;
-      if (remaining < SURAH_OPEN_SPAN + 1) flushPage();
-      pageSlots.push(surahOpenSlot(grp.s, verses));
-      pageSlots.push(blankSlot());
+      const remaining = linesPerPage - pageSlots.length;
+      if (remaining < surahOpenSpan + 1) flushPage();
+      pageSlots.push(surahOpenSlot(grp.s, verses, bismillahArabic, bismillahBangla));
+      for (let k = 1; k < surahOpenSpan; k++) {
+        pageSlots.push(blankSlot());
+      }
       pageSurah = grp.s;
       prevSurah = grp.s;
     } else if (pageSlots.length === 0) {
@@ -223,7 +236,7 @@ export function buildPagesFromVerses(
       let si = startSi;
       for (let k = 0; k < lineIdx; k++) {
         si++;
-        if (si >= LINES_PER_PAGE) {
+        if (si >= linesPerPage) {
           pn++;
           si = 0;
         }
@@ -237,16 +250,16 @@ export function buildPagesFromVerses(
 
     // Flow this surah's verses into lines, then push line-by-line.
     const lines = packVerses(grp.verses, {
-      widthPx: GRID_W_PX,
+      widthPx: gridWPx,
       arabicFontPx,
-      arabicFamily: ARABIC_FAMILY,
+      arabicFamily: tmpl.typography.arabicFamily,
       banglaFontPx,
-      banglaFamily: BANGLA_FAMILY,
+      banglaFamily: tmpl.typography.banglaFamily,
       getRowFontPx,
     });
 
     for (const fl of lines) {
-      if (pageSlots.length >= LINES_PER_PAGE) flushPage();
+      if (pageSlots.length >= linesPerPage) flushPage();
       if (pageSlots.length === 0) pageSurah = grp.s;
       pageSlots.push({
         slotKind: "ayah",
@@ -356,8 +369,15 @@ async function buildPagesFromVersesChunked(
   progressOffset: number,
   progressTotal: number,
 ): Promise<ContinuousPage[]> {
-  const arabicFontPx = opts.arabicFontPx ?? ARABIC_FONT_PX;
-  const banglaFontPx = opts.banglaFontPx ?? BANGLA_FONT_PX;
+  const tmpl = opts.template ?? useTemplateStore.getState().getActiveTemplate();
+  const linesPerPage = tmpl.linesPerPage;
+  const surahOpenSpan = tmpl.surahOpen.headerSpan;
+  const bismillahArabic = tmpl.surahOpen.bismillahArabic;
+  const bismillahBangla = tmpl.surahOpen.bismillahBangla;
+  const gridWPx = getGridWidthPx(tmpl);
+
+  const arabicFontPx = opts.arabicFontPx ?? tmpl.typography.arabicFontPx;
+  const banglaFontPx = opts.banglaFontPx ?? tmpl.typography.banglaFontPx;
   const rowOverrides = opts.rowFontOverrides ?? {};
 
   const queue = verses.filter((v) => v.id >= startVerseId);
@@ -379,7 +399,7 @@ async function buildPagesFromVersesChunked(
 
   const flushPage = (pad = true) => {
     if (pageSlots.length === 0) return;
-    if (pad) while (pageSlots.length < LINES_PER_PAGE) pageSlots.push(blankSlot());
+    if (pad) while (pageSlots.length < linesPerPage) pageSlots.push(blankSlot());
     const m = surahMeta(verses, pageSurah);
     out.push({
       id: `vpage-${pageNo}`,
@@ -414,10 +434,12 @@ async function buildPagesFromVersesChunked(
     const grp = surahGroups[gi];
 
     if (grp.s !== prevSurah) {
-      const remaining = LINES_PER_PAGE - pageSlots.length;
-      if (remaining < SURAH_OPEN_SPAN + 1) flushPage();
-      pageSlots.push(surahOpenSlot(grp.s, verses));
-      pageSlots.push(blankSlot());
+      const remaining = linesPerPage - pageSlots.length;
+      if (remaining < surahOpenSpan + 1) flushPage();
+      pageSlots.push(surahOpenSlot(grp.s, verses, bismillahArabic, bismillahBangla));
+      for (let k = 1; k < surahOpenSpan; k++) {
+        pageSlots.push(blankSlot());
+      }
       pageSurah = grp.s;
       prevSurah = grp.s;
     } else if (pageSlots.length === 0) {
@@ -431,7 +453,7 @@ async function buildPagesFromVersesChunked(
       let si = startSi;
       for (let k = 0; k < lineIdx; k++) {
         si++;
-        if (si >= LINES_PER_PAGE) {
+        if (si >= linesPerPage) {
           pn++;
           si = 0;
         }
@@ -444,16 +466,16 @@ async function buildPagesFromVersesChunked(
     };
 
     const lines = packVerses(grp.verses, {
-      widthPx: GRID_W_PX,
+      widthPx: gridWPx,
       arabicFontPx,
-      arabicFamily: ARABIC_FAMILY,
+      arabicFamily: tmpl.typography.arabicFamily,
       banglaFontPx,
-      banglaFamily: BANGLA_FAMILY,
+      banglaFamily: tmpl.typography.banglaFamily,
       getRowFontPx,
     });
 
     for (const fl of lines) {
-      if (pageSlots.length >= LINES_PER_PAGE) flushPage();
+      if (pageSlots.length >= linesPerPage) flushPage();
       if (pageSlots.length === 0) pageSurah = grp.s;
       pageSlots.push({
         slotKind: "ayah",
