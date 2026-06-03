@@ -1,155 +1,161 @@
-import { createContext, useContext, useState, ReactNode, useCallback } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 
 type PromptOptions = {
   title: string;
-  description?: string;
+  message?: string;
   defaultValue?: string;
+  placeholder?: string;
 };
 
 type ConfirmOptions = {
   title: string;
-  description?: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
 };
 
-interface ModalContextType {
-  showPrompt: (options: PromptOptions) => Promise<string | null>;
-  showConfirm: (options: ConfirmOptions) => Promise<boolean>;
-}
+type ModalContextType = {
+  showPrompt: (options: PromptOptions | string, defaultVal?: string) => Promise<string | null>;
+  showConfirm: (options: ConfirmOptions | string) => Promise<boolean>;
+};
 
 const ModalContext = createContext<ModalContextType | null>(null);
 
 export function useModal() {
-  const context = useContext(ModalContext);
-  if (!context) {
-    throw new Error("useModal must be used within a ModalProvider");
-  }
-  return context;
+  const ctx = useContext(ModalContext);
+  if (!ctx) throw new Error("useModal must be used within ModalProvider");
+  return ctx;
 }
 
-export function ModalProvider({ children }: { children: ReactNode }) {
-  const [promptState, setPromptState] = useState<{
-    open: boolean;
-    options: PromptOptions | null;
-    resolve: (value: string | null) => void;
-    inputValue: string;
-  }>({
-    open: false,
-    options: null,
-    resolve: () => {},
-    inputValue: "",
-  });
+type ModalState = 
+  | { type: "prompt"; options: PromptOptions; resolve: (val: string | null) => void }
+  | { type: "confirm"; options: ConfirmOptions; resolve: (val: boolean) => void }
+  | null;
 
-  const [confirmState, setConfirmState] = useState<{
-    open: boolean;
-    options: ConfirmOptions | null;
-    resolve: (value: boolean) => void;
-  }>({
-    open: false,
-    options: null,
-    resolve: () => {},
-  });
+export function ModalProvider({ children }: { children: React.ReactNode }) {
+  const [modal, setModal] = useState<ModalState>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const showPrompt = useCallback((options: PromptOptions) => {
+  const showPrompt = useCallback((options: PromptOptions | string, defaultVal?: string) => {
     return new Promise<string | null>((resolve) => {
-      setPromptState({
-        open: true,
-        options,
-        resolve,
-        inputValue: options.defaultValue || "",
-      });
+      const opts = typeof options === "string" ? { title: options, defaultValue: defaultVal } : options;
+      setModal({ type: "prompt", options: opts, resolve });
     });
   }, []);
 
-  const showConfirm = useCallback((options: ConfirmOptions) => {
+  const showConfirm = useCallback((options: ConfirmOptions | string) => {
     return new Promise<boolean>((resolve) => {
-      setConfirmState({
-        open: true,
-        options,
-        resolve,
-      });
+      const opts = typeof options === "string" ? { title: "Confirm", message: options } : options;
+      setModal({ type: "confirm", options: opts, resolve });
     });
   }, []);
 
-  const closePrompt = (value: string | null) => {
-    promptState.resolve(value);
-    setPromptState((prev) => ({ ...prev, open: false }));
-  };
+  const handleClose = useCallback(() => {
+    if (modal?.type === "prompt") modal.resolve(null);
+    else if (modal?.type === "confirm") modal.resolve(false);
+    setModal(null);
+  }, [modal]);
 
-  const closeConfirm = (value: boolean) => {
-    confirmState.resolve(value);
-    setConfirmState((prev) => ({ ...prev, open: false }));
-  };
+  const handleSubmitPrompt = useCallback((e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (modal?.type === "prompt") {
+      modal.resolve(inputRef.current?.value || "");
+      setModal(null);
+    }
+  }, [modal]);
+
+  const handleConfirm = useCallback(() => {
+    if (modal?.type === "confirm") {
+      modal.resolve(true);
+      setModal(null);
+    }
+  }, [modal]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    if (modal) {
+      window.addEventListener("keydown", handleKeyDown);
+      if (modal.type === "prompt") {
+        setTimeout(() => {
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        }, 10);
+      }
+    }
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [modal, handleClose]);
 
   return (
     <ModalContext.Provider value={{ showPrompt, showConfirm }}>
       {children}
-      
-      {/* Prompt Dialog */}
-      <Dialog open={promptState.open} onOpenChange={(open) => !open && closePrompt(null)}>
-        <DialogContent className="sm:max-w-[425px] bg-neutral-950 border-neutral-800 text-neutral-200">
-          <DialogHeader>
-            <DialogTitle className="text-amber-400">{promptState.options?.title}</DialogTitle>
-            {promptState.options?.description && (
-              <DialogDescription className="text-neutral-400">
-                {promptState.options.description}
-              </DialogDescription>
-            )}
-          </DialogHeader>
-          <div className="py-4">
-            <input
-              type="text"
-              autoFocus
-              value={promptState.inputValue}
-              onChange={(e) => setPromptState((prev) => ({ ...prev, inputValue: e.target.value }))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") closePrompt(promptState.inputValue);
-              }}
-              className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-amber-500"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => closePrompt(null)} className="border-neutral-700 bg-neutral-900 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100">
-              বাতিল
-            </Button>
-            <Button onClick={() => closePrompt(promptState.inputValue)} className="bg-amber-600 text-neutral-950 hover:bg-amber-500">
-              নিশ্চিত করুন
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {modal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div 
+            className="bg-neutral-900 border border-neutral-700/50 shadow-2xl shadow-black/50 rounded-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="p-6">
+              <h3 className="text-xl font-bold text-neutral-100 mb-2 font-bangla">
+                {modal.options.title}
+              </h3>
+              
+              {modal.type === "confirm" && (
+                <p className="text-neutral-400 font-bangla text-base mb-6">
+                  {modal.options.message}
+                </p>
+              )}
 
-      {/* Confirm Dialog */}
-      <Dialog open={confirmState.open} onOpenChange={(open) => !open && closeConfirm(false)}>
-        <DialogContent className="sm:max-w-[425px] bg-neutral-950 border-neutral-800 text-neutral-200">
-          <DialogHeader>
-            <DialogTitle className="text-amber-400">{confirmState.options?.title}</DialogTitle>
-            {confirmState.options?.description && (
-              <DialogDescription className="text-neutral-400">
-                {confirmState.options.description}
-              </DialogDescription>
-            )}
-          </DialogHeader>
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => closeConfirm(false)} className="border-neutral-700 bg-neutral-900 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100">
-              {confirmState.options?.cancelLabel || "না, বাতিল"}
-            </Button>
-            <Button onClick={() => closeConfirm(true)} variant="destructive" className="bg-red-600 text-white hover:bg-red-500">
-              {confirmState.options?.confirmLabel || "হ্যাঁ, নিশ্চিত"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              {modal.type === "prompt" && modal.options.message && (
+                <p className="text-neutral-400 font-bangla text-sm mb-4">
+                  {modal.options.message}
+                </p>
+              )}
+
+              {modal.type === "prompt" && (
+                <form onSubmit={handleSubmitPrompt} className="mb-6">
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    defaultValue={modal.options.defaultValue}
+                    placeholder={modal.options.placeholder}
+                    className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-4 py-3 text-neutral-100 font-bangla focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
+                  />
+                </form>
+              )}
+
+              <div className="flex justify-end gap-3 font-bangla">
+                <Button 
+                  onClick={handleClose} 
+                  variant="outline" 
+                  className="border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl"
+                >
+                  {modal.type === "confirm" ? (modal.options.cancelText || "বাতিল") : "বাতিল"}
+                </Button>
+                
+                {modal.type === "prompt" ? (
+                  <Button 
+                    onClick={handleSubmitPrompt} 
+                    className="bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-xl"
+                  >
+                    নিশ্চিত করুন
+                  </Button>
+                ) : (
+                  <Button 
+                    onClick={handleConfirm} 
+                    className="bg-red-500 hover:bg-red-400 text-white font-bold rounded-xl"
+                  >
+                    {modal.options.confirmText || "হ্যাঁ, নিশ্চিত"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </ModalContext.Provider>
   );
 }
