@@ -41,20 +41,15 @@ export function useLargeChangeGuard(): {
   const [pending, setPending] = useState<Pending | null>(null);
 
   const run = useCallback(async (p: Pending) => {
-    const set = useReflowStore.setState;
-    set({ buildProgress: { label: p.label, pct: 10 } });
-    // Yield once so the progress bar paints before sync work.
+    const toastId = toast.loading(p.label || "পরিবর্তন প্রয়োগ হচ্ছে…");
+    // Yield once so the UI can paint the toast before sync work.
     await new Promise((r) => requestAnimationFrame(() => r(null)));
-    set({ buildProgress: { label: p.label, pct: 60 } });
     try {
       await p.action();
-      set({ buildProgress: { label: p.label, pct: 100 } });
-      toast.success("পরিবর্তন সম্পন্ন হয়েছে");
+      toast.success("পরিবর্তন সম্পন্ন হয়েছে", { id: toastId });
     } catch (err) {
       console.error("[useLargeChangeGuard] action failed", err);
-      toast.error("পরিবর্তন প্রয়োগে ত্রুটি হয়েছে");
-    } finally {
-      setTimeout(() => useReflowStore.setState({ buildProgress: null }), 400);
+      toast.error("পরিবর্তন প্রয়োগে ত্রুটি হয়েছে", { id: toastId });
     }
   }, []);
 

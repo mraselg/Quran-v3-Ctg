@@ -739,7 +739,7 @@ function ResetGroup() {
           <AlertDialogHeader>
             <AlertDialogTitle>সব রিসেট করবেন?</AlertDialogTitle>
             <AlertDialogDescription>
-              আপনি কি সব সেটিং রিসেট করতে চান? এই কাজটি পূর্বাবস্থায় ফেরানো যাবে না।
+              আপনি কি সব সেটিং রিসেট করতে চান? এই কাজটি পূর্বাবস্থায় ফেরানো যাবে না.
               <br />
               <span
                 className={scope === "global" ? "text-red-400 font-semibold" : "text-neutral-400"}
@@ -783,18 +783,27 @@ function SubLayerPanel({
   const [active, setActive] = useState<SubLayer>("arabic");
   const link = useLinkingStore();
   const key = layerKey(pageId, rowIndex, active);
-  const dy = useOverridesStore((s) => s.local[key]?.dy ?? 0);
+  const overrides = useOverridesStore((s) => s.local[key] ?? {});
+  const dy = overrides.dy ?? 0;
+  const dx = overrides.dx ?? 0;
 
-  const apply = (v: number | undefined) => {
+  const apply = (patch: { dx?: number | undefined; dy?: number | undefined }) => {
     void (async () => {
       const linked = link[active];
       if (linked) {
         const eff = await effectiveScope(scope, active);
-        await patchScoped(key, { dy: v }, eff);
+        await patchScoped(key, patch, eff);
       } else {
-        useOverridesStore.getState().patchLocal(key, { dy: v });
+        useOverridesStore.getState().patchLocal(key, patch);
       }
     })();
+  };
+
+  const nudge = (deltaX: number, deltaY: number) => {
+    apply({
+      dx: dx + deltaX === 0 ? undefined : dx + deltaX,
+      dy: dy + deltaY === 0 ? undefined : dy + deltaY,
+    });
   };
 
   const meta = SUB_META[active];
@@ -802,7 +811,7 @@ function SubLayerPanel({
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
       <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-        <MoveIcon className="h-3 w-3" /> সাব-লেয়ার মুভমেন্ট
+        <MoveIcon className="h-3 w-3" /> পজিশন অ্যাডজাস্টমেন্ট
       </div>
 
       <div className="flex gap-1">
