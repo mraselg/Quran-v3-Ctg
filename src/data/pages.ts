@@ -25,6 +25,8 @@ export type GridLineData = {
   blocks: WordBlockData[];
   banglaLine?: string;
   arabicLine?: string;
+  pronunciationLine?: string;
+  meaningLine?: string;
   slotKind?: "ayah" | "surah-open" | "blank";
   surahOpen?: SurahOpenSlot;
 };
@@ -265,6 +267,8 @@ export function buildPagesFromVerses(
         slotKind: "ayah",
         arabicLine: fl.arabicLine,
         banglaLine: fl.banglaLine,
+        pronunciationLine: fl.pronunciationLine,
+        meaningLine: fl.meaningLine,
         blocks: [],
         markers: defaultMarkers,
       });
@@ -481,6 +485,8 @@ async function buildPagesFromVersesChunked(
         slotKind: "ayah",
         arabicLine: fl.arabicLine,
         banglaLine: fl.banglaLine,
+        pronunciationLine: fl.pronunciationLine,
+        meaningLine: fl.meaningLine,
         blocks: [],
         markers: defaultMarkersArg,
       });

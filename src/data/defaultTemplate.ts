@@ -9,6 +9,13 @@ import type { MasterTemplate } from "@/types/template";
  *   - SurahOpenBlock.tsx: percentage positions
  *   - typographyReflow.ts: ARTBOARD_TEXT_WIDTH derivation
  */
+
+export const DEFAULT_RULE_COLORS: Record<number, string> = {
+  1: "#10b981", 2: "#3b82f6", 3: "#8b5cf6",  4: "#ec4899",
+  5: "#f59e0b", 6: "#14b8a6", 7: "#f97316",  8: "#06b6d4",
+  9: "#ef4444", 10: "#a855f7", 11: "#84cc16", 12: "#6366f1",
+};
+
 export const KARIANA_TEMPLATE: MasterTemplate = {
   id: "kariana-default",
   name: "কারিয়ানা ডিফল্ট",

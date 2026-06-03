@@ -1,16 +1,33 @@
-import { SURAH_NAMES } from "@/data/surahNames";
+import type { PageDistribution } from "@/state/reflowStore";
 
-export type ExportRange = {
-  startSurah: number;
-  endSurah: number;
-};
+/** Parse "1, 4, 10-15" into sorted unique 1-indexed page numbers. */
+export function parseCustomRange(text: string, maxPage: number): number[] {
+  const nums = new Set<number>();
+  text.split(",").forEach((segment) => {
+    const trimmed = segment.trim();
+    const range = trimmed.match(/^(\d+)\s*[-–]\s*(\d+)$/);
+    if (range) {
+      const from = Math.max(1, parseInt(range[1]));
+      const to = Math.min(maxPage, parseInt(range[2]));
+      for (let i = from; i <= to; i++) nums.add(i);
+    } else if (/^\d+$/.test(trimmed)) {
+      const n = parseInt(trimmed);
+      if (n >= 1 && n <= maxPage) nums.add(n);
+    }
+  });
+  return [...nums].sort((a, b) => a - b);
+}
 
-export function getExportRangeDescription(range: ExportRange): string {
-  if (range.startSurah === range.endSurah) {
-    const surah = SURAH_NAMES.find((s) => s.id === range.startSurah);
-    return surah ? surah.name : `Surah ${range.startSurah}`;
-  }
-  const start = SURAH_NAMES.find((s) => s.id === range.startSurah);
-  const end = SURAH_NAMES.find((s) => s.id === range.endSurah);
-  return `${start ? start.name : range.startSurah} - ${end ? end.name : range.endSurah}`;
+/** Return 0-indexed page indices for all pages belonging to the given surah. */
+export function resolveBysurah(surahNum: number, distribution: PageDistribution[]): number[] {
+  return distribution
+    .map((d, i) => (d.surah === surahNum ? i : -1))
+    .filter((i) => i >= 0);
+}
+
+/** Return 0-indexed page indices for all pages in the given para (juz). */
+export function resolveByPara(paraNum: number, distribution: PageDistribution[]): number[] {
+  return distribution
+    .map((d, i) => (d.para === paraNum ? i : -1))
+    .filter((i) => i >= 0);
 }

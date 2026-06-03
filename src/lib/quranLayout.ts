@@ -17,7 +17,9 @@ export type Verse = {
 
 export type FlowLine = {
   arabicLine: string;
-  banglaLine: string;
+  banglaLine: string; // Keep for backward compatibility/rendering standard bangla layer
+  pronunciationLine: string;
+  meaningLine: string;
   markers: string[];
   startsSurah?: number;
   startsVerse?: number;
@@ -166,13 +168,18 @@ function packArabic(verses: Verse[], opts: FlowOpts): ArabicLineMeta[] {
   return lines;
 }
 
-function packBangla(verses: Verse[], opts: FlowOpts): string[] {
-  setFont(opts.banglaFontPx, opts.banglaFamily);
+function packBangla(verses: Verse[], opts: FlowOpts, field: "bn" | "t_bn" | "legacy", fontPx: number): string[] {
+  setFont(fontPx, opts.banglaFamily);
   const width = opts.widthPx;
 
   const tokens: string[] = [];
   for (const v of verses) {
-    const body = stripBanglaNumbering(v.t_bn || v.bn || "");
+    let body = "";
+    if (field === "legacy") {
+      body = stripBanglaNumbering(v.t_bn || v.bn || "");
+    } else {
+      body = stripBanglaNumbering(v[field] || "");
+    }
     const piece = `${bnNum(v.v)}। ${body}`.replace(/\s+/g, " ").trim();
     if (!piece) continue;
     for (const w of piece.split(" ")) tokens.push(w);
@@ -200,13 +207,18 @@ function packBangla(verses: Verse[], opts: FlowOpts): string[] {
 
 export function packVerses(verses: Verse[], opts: FlowOpts): FlowLine[] {
   const ar = packArabic(verses, opts);
-  const bn = packBangla(verses, opts);
-  const n = Math.max(ar.length, bn.length);
+  const bn = packBangla(verses, opts, "legacy", opts.banglaFontPx);
+  const pron = packBangla(verses, opts, "bn", opts.banglaFontPx); // Ideally we'd pass pronunciationFontPx but fallback to banglaFontPx
+  const mean = packBangla(verses, opts, "t_bn", opts.banglaFontPx); // Ideally we'd pass meaningFontPx but fallback to banglaFontPx
+  
+  const n = Math.max(ar.length, bn.length, pron.length, mean.length);
   const out: FlowLine[] = [];
   for (let i = 0; i < n; i++) {
     out.push({
       arabicLine: ar[i]?.text ?? "",
       banglaLine: bn[i] ?? "",
+      pronunciationLine: pron[i] ?? "",
+      meaningLine: mean[i] ?? "",
       markers: [],
       startsSurah: ar[i]?.startsSurah,
       startsVerse: ar[i]?.startsVerse,

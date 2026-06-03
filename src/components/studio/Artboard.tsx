@@ -62,6 +62,8 @@ export const Artboard = memo(function Artboard({ page, zoom = 1 }: { page: PageD
       arabic: l.arabicLine ?? l.blocks.map((b) => b.arabic).join(" "),
       bangla: l.banglaLine ?? l.blocks.map((b) => b.bangla).filter(Boolean).join(" "),
       symbol: (l.markers ?? []).join("  "),
+      pronunciation: l.pronunciationLine,
+      meaning: l.meaningLine,
     };
   });
 

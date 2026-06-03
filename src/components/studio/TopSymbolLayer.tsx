@@ -63,7 +63,7 @@ export function TopSymbolLayer({
   const layerRef = useRef<HTMLDivElement | null>(null);
   const [liveText, setLiveText] = useState<string>(displayArabic ?? arabic ?? "");
   const [positions, setPositions] = useState<Array<TajweedMatch & { x: number }>>([]);
-  const { isEnabled } = useTajweedRules();
+  const { isEnabled, getColor } = useTajweedRules();
   const localMap = useOverridesStore((s) => s.local);
   const globalSubRuleDx = useOverridesStore((s) => s.globalSubRuleDx);
   const gSymbolScale = useOverridesStore((s) => s.global.symbolScale) ?? 1;
@@ -206,7 +206,7 @@ export function TopSymbolLayer({
               fontSize: sizePx,
               lineHeight: `${sizePx}px`,
               textAlign: "center",
-              color: ov?.color ?? "#ef4444",
+              color: ov?.color ?? getColor(p.symbol),
               display: "block",
               pointerEvents: editMode ? "auto" : "none",
               cursor: editMode ? "grab" : "default",

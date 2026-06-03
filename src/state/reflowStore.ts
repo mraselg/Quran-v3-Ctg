@@ -117,6 +117,11 @@ function computeSignature(): string {
     // Only include if at least one field is set (avoid bloating signature)
     if (sig !== ":::::::" ) parts.push(`${k}=${sig}`);
   }
+  
+  // Include meaningConfig to force rebuild on toggle
+  const mc = useTemplateStore.getState().getActiveTemplate().meaningConfig;
+  parts.push(`mc:${mc?.showMeaning ? 1 : 0}|${mc?.showPronunciation ? 1 : 0}`);
+  
   return parts.join("¦");
 }
 

@@ -36,7 +36,15 @@ export const useTemplateStore = create<TemplateState>()(
 
       getActiveTemplate: () => {
         const { templates, activeTemplateId } = get();
-        return templates.find((t) => t.id === activeTemplateId) ?? KARIANA_TEMPLATE;
+        const base = templates.find((t) => t.id === activeTemplateId) ?? KARIANA_TEMPLATE;
+        const result = structuredClone(base);
+        if (result.meaningConfig) {
+          result.bandRatios.pronunciationRatio = result.meaningConfig.showPronunciation
+            ? result.meaningConfig.pronunciationRatio : 0;
+          result.bandRatios.meaningRatio = result.meaningConfig.showMeaning
+            ? result.meaningConfig.meaningRatio : 0;
+        }
+        return result;
       },
 
       setActiveTemplate: (id) => {

@@ -4,13 +4,20 @@ import { useTemplateStore, BUILT_IN_IDS } from "@/state/templateStore";
 import { useOverridesStore } from "@/state/overridesStore";
 import { useReflowStore } from "@/state/reflowStore";
 import { useModal } from "@/context/ModalContext";
-import type { MasterTemplate, ColorProfile } from "@/types/template";
-import { KARIANA_TEMPLATE } from "@/data/defaultTemplate";
+import type { MasterTemplate, ColorProfile, MeaningConfig } from "@/types/template";
+import { DEFAULT_RULE_COLORS } from "@/data/defaultTemplate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Copy, Trash, Upload, LayoutTemplate, Type, Image as ImageIcon, Printer, Settings, Layers, Info } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { ArrowLeft, Copy, Trash, Upload, LayoutTemplate, Type, Image as ImageIcon, Printer, Settings, BookOpen, Info } from "lucide-react";
+import { ALL_RULE_IDS, TAJWEED_RULE_NAMES } from "@/lib/tajweed/svgMap";
+
+const defaultMeaningConfig: MeaningConfig = {
+  showPronunciation: false, pronunciationFontPx: 14, pronunciationRatio: 0.0,
+  showMeaning: false, meaningFontPx: 12, meaningRatio: 0.0,
+};
 
 export function TemplateBuilder() {
   const navigate = useNavigate();
@@ -144,10 +151,9 @@ export function TemplateBuilder() {
         </div>
       </header>
 
-      <main className="flex-1 p-8 max-w-[1400px] mx-auto w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 items-start">
-        {/* Column 1 */}
+      <main className="flex-1 p-8 max-w-7xl mx-auto w-full grid grid-cols-1 md:grid-cols-3 gap-8 items-start">
+        {/* Column 1: Layout + Surah Header */}
         <div className="space-y-8">
-          {/* Basic Info */}
           <Card>
             <CardHeader className="bg-slate-50/50 border-b pb-4">
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -176,7 +182,6 @@ export function TemplateBuilder() {
             </CardContent>
           </Card>
 
-          {/* Layout Section */}
           <Card>
             <CardHeader className="bg-slate-50/50 border-b pb-4">
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -218,151 +223,6 @@ export function TemplateBuilder() {
             </CardContent>
           </Card>
 
-          {/* Typography Settings */}
-          <Card>
-            <CardHeader className="bg-slate-50/50 border-b pb-4">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Settings className="h-5 w-5 text-emerald-600" />
-                টাইপোগ্রাফি ডিফল্ট
-              </CardTitle>
-              <CardDescription>ফন্টের আকার এবং ওয়াই (Y) অফসেট</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>আরবি Y-অফসেট</Label>
-                  <Input
-                    type="number"
-                    value={activeTemplate.typography.defaultArabicY ?? 0}
-                    onChange={(e) => applyChange(t => { t.typography.defaultArabicY = parseFloat(e.target.value); })}
-                    disabled={isBuiltIn}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>বাংলা Y-অফসেট</Label>
-                  <Input
-                    type="number"
-                    value={activeTemplate.typography.defaultBanglaY ?? 0}
-                    onChange={(e) => applyChange(t => { t.typography.defaultBanglaY = parseFloat(e.target.value); })}
-                    disabled={isBuiltIn}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>সিম্বল Y-অফসেট</Label>
-                  <Input
-                    type="number"
-                    value={activeTemplate.typography.defaultSymbolY ?? 0}
-                    onChange={(e) => applyChange(t => { t.typography.defaultSymbolY = parseFloat(e.target.value); })}
-                    disabled={isBuiltIn}
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Column 2 */}
-        <div className="space-y-8">
-          {/* Sub Layers Section */}
-          <Card>
-            <CardHeader className="bg-slate-50/50 border-b pb-4">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Layers className="h-5 w-5 text-emerald-600" />
-                সাব-লেয়ার সেটিং
-              </CardTitle>
-              <CardDescription>উচ্চারণ এবং অর্থের অনুপাত (0-0.2)</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>উচ্চারণ অনুপাত (Ratio)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="0.5"
-                    value={activeTemplate.meaningConfig?.pronunciationRatio ?? 0}
-                    onChange={(e) => applyChange(t => { 
-                      if (!t.meaningConfig) return;
-                      t.meaningConfig.pronunciationRatio = parseFloat(e.target.value);
-                      t.bandRatios.pronunciationRatio = parseFloat(e.target.value);
-                    })}
-                    disabled={isBuiltIn}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>উচ্চারণ ফন্ট সাইজ</Label>
-                  <Input
-                    type="number"
-                    value={activeTemplate.meaningConfig?.pronunciationFontPx ?? 14}
-                    onChange={(e) => applyChange(t => { 
-                      if (!t.meaningConfig) return;
-                      t.meaningConfig.pronunciationFontPx = parseFloat(e.target.value); 
-                    })}
-                    disabled={isBuiltIn}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>অর্থ অনুপাত (Ratio)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="0.5"
-                    value={activeTemplate.meaningConfig?.meaningRatio ?? 0}
-                    onChange={(e) => applyChange(t => { 
-                      if (!t.meaningConfig) return;
-                      t.meaningConfig.meaningRatio = parseFloat(e.target.value);
-                      t.bandRatios.meaningRatio = parseFloat(e.target.value);
-                    })}
-                    disabled={isBuiltIn}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>অর্থ ফন্ট সাইজ</Label>
-                  <Input
-                    type="number"
-                    value={activeTemplate.meaningConfig?.meaningFontPx ?? 12}
-                    onChange={(e) => applyChange(t => { 
-                      if (!t.meaningConfig) return;
-                      t.meaningConfig.meaningFontPx = parseFloat(e.target.value); 
-                    })}
-                    disabled={isBuiltIn}
-                  />
-                </div>
-              </div>
-              <div className="flex items-center gap-4 pt-2 border-t">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={activeTemplate.meaningConfig?.showPronunciation ?? false}
-                    onChange={(e) => applyChange(t => {
-                      if (!t.meaningConfig) return;
-                      t.meaningConfig.showPronunciation = e.target.checked;
-                    })}
-                    disabled={isBuiltIn}
-                  />
-                  <span>উচ্চারণ দেখান</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={activeTemplate.meaningConfig?.showMeaning ?? false}
-                    onChange={(e) => applyChange(t => {
-                      if (!t.meaningConfig) return;
-                      t.meaningConfig.showMeaning = e.target.checked;
-                    })}
-                    disabled={isBuiltIn}
-                  />
-                  <span>অর্থ দেখান</span>
-                </label>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Surah Header Section */}
           <Card>
             <CardHeader className="bg-slate-50/50 border-b pb-4">
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -407,50 +267,9 @@ export function TemplateBuilder() {
           </Card>
         </div>
 
-        {/* Column 3 */}
+        {/* Column 2: Assets + Print Config */}
         <div className="space-y-8">
-           {/* Print Section */}
-           <Card>
-            <CardHeader className="bg-slate-50/50 border-b pb-4">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Printer className="h-5 w-5 text-emerald-600" />
-                প্রিন্ট ও এক্সপোর্ট
-              </CardTitle>
-              <CardDescription>প্রিন্ট ব্লিড এবং কালার প্রোফাইল</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-6">
-              <div className="grid gap-2">
-                <Label>ব্লিড মার্জিন (mm)</Label>
-                <Input
-                  type="number"
-                  value={activeTemplate.printConfig?.bleedMarginMm ?? 0}
-                  onChange={(e) => applyChange(t => { 
-                    if (!t.printConfig) t.printConfig = { bleedMarginMm: 0, colorProfile: "RGB" };
-                    t.printConfig.bleedMarginMm = parseFloat(e.target.value); 
-                  })}
-                  disabled={isBuiltIn}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>কালার প্রোফাইল</Label>
-                <select
-                  value={activeTemplate.printConfig?.colorProfile ?? "RGB"}
-                  onChange={(e) => applyChange(t => {
-                    if (!t.printConfig) t.printConfig = { bleedMarginMm: 0, colorProfile: "RGB" };
-                    t.printConfig.colorProfile = e.target.value as ColorProfile;
-                  })}
-                  disabled={isBuiltIn}
-                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 w-full"
-                >
-                  <option value="RGB">RGB (ডিজিটাল)</option>
-                  <option value="CMYK">CMYK (প্রিন্ট)</option>
-                </select>
-              </div>
-            </CardContent>
-          </Card>
-
-           {/* Assets Section */}
-           <Card>
+          <Card>
             <CardHeader className="bg-slate-50/50 border-b pb-4">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <ImageIcon className="h-5 w-5 text-emerald-600" />
@@ -502,6 +321,264 @@ export function TemplateBuilder() {
                   </div>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="bg-slate-50/50 border-b pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Printer className="h-5 w-5 text-emerald-600" />
+                প্রিন্ট ও রপ্তানি কনফিগ
+              </CardTitle>
+              <CardDescription>ব্লিড মার্জিন ও কালার প্রোফাইল</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-6">
+              {/* Bleed Margin */}
+              <div>
+                <Label>ব্লিড মার্জিন (mm)</Label>
+                <div className="flex items-center gap-3 mt-1">
+                  <Input
+                    type="range" min={0} max={10} step={0.5}
+                    value={activeTemplate.printConfig?.bleedMarginMm ?? 0}
+                    onChange={(e) => applyChange(t => {
+                      t.printConfig = { ...(t.printConfig ?? { colorProfile: "RGB" }), bleedMarginMm: +e.target.value };
+                    })}
+                    disabled={isBuiltIn}
+                    className="flex-1"
+                  />
+                  <span className="text-sm w-12 text-right">
+                    {(activeTemplate.printConfig?.bleedMarginMm ?? 0).toFixed(1)} mm
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">প্রিন্ট-রেডি PDF-এ সাধারণত 3mm ব্লিড দেওয়া হয়</p>
+              </div>
+              {/* Color Profile */}
+              <div>
+                <Label>কালার প্রোফাইল</Label>
+                <div className="flex gap-3 mt-2">
+                  {(["RGB", "CMYK"] as const).map((profile) => (
+                    <label key={profile} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        value={profile}
+                        checked={(activeTemplate.printConfig?.colorProfile ?? "RGB") === profile}
+                        onChange={() => applyChange(t => {
+                          t.printConfig = { ...(t.printConfig ?? { bleedMarginMm: 0 }), colorProfile: profile };
+                        })}
+                        disabled={isBuiltIn}
+                      />
+                      <span className="text-sm">{profile}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400 mt-1">CMYK: পেশাদার প্রিন্টিং প্রেস, RGB: ডিজিটাল/স্ক্রিন</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Column 3: Typography + Tajweed + Meaning */}
+        <div className="space-y-8">
+          <Card>
+            <CardHeader className="bg-slate-50/50 border-b pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Type className="h-5 w-5 text-emerald-600" />
+                গ্লোবাল টাইপোগ্রাফি ডিফল্ট
+              </CardTitle>
+              <CardDescription>এই টেমপ্লেটের আরবি/বাংলা সাইজ ও পজিশন ডিফল্ট</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-6">
+              {/* Arabic/Bangla font size */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>আরবি ফন্ট সাইজ (px)</Label>
+                  <Input type="number" min={20} max={100}
+                    value={activeTemplate.typography.arabicFontPx}
+                    onChange={(e) => applyChange(t => { t.typography.arabicFontPx = +e.target.value; })}
+                    disabled={isBuiltIn} />
+                </div>
+                <div>
+                  <Label>বাংলা ফন্ট সাইজ (px)</Label>
+                  <Input type="number" min={8} max={40}
+                    value={activeTemplate.typography.banglaFontPx}
+                    onChange={(e) => applyChange(t => { t.typography.banglaFontPx = +e.target.value; })}
+                    disabled={isBuiltIn} />
+                </div>
+              </div>
+              {/* Symbol font size */}
+              <div>
+                <Label>তাজভীদ প্রতীক সাইজ (px)</Label>
+                <Input type="number" min={10} max={60}
+                  value={activeTemplate.typography.symbolFontPx}
+                  onChange={(e) => applyChange(t => { t.typography.symbolFontPx = +e.target.value; })}
+                  disabled={isBuiltIn} />
+              </div>
+              {/* Y offsets */}
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { field: "defaultArabicY" as const, label: "আরবি Y অফসেট" },
+                  { field: "defaultBanglaY" as const, label: "বাংলা Y অফসেট" },
+                  { field: "defaultSymbolY" as const, label: "প্রতীক Y অফসেট" },
+                ].map(({ field, label }) => (
+                  <div key={field}>
+                    <Label className="text-xs">{label}</Label>
+                    <Input type="number" min={-50} max={50}
+                      value={activeTemplate.typography[field] ?? 0}
+                      onChange={(e) => applyChange(t => { t.typography[field] = +e.target.value; })}
+                      disabled={isBuiltIn} />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="bg-slate-50/50 border-b pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Settings className="h-5 w-5 text-emerald-600" />
+                তাজভীদ কাস্টমাইজেশন
+              </CardTitle>
+              <CardDescription>১২টি তাজভীদ বিধির রঙ ও দৃশ্যমানতা</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-4">
+              {/* Master toggle row */}
+              <div className="flex items-center justify-between pb-3 border-b mb-3">
+                <span className="text-sm font-medium">সব চালু/বন্ধ</span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline"
+                    onClick={() => !isBuiltIn && ALL_RULE_IDS.forEach(id =>
+                      applyChange(t => { t.tajweedConfig = t.tajweedConfig ?? {}; t.tajweedConfig[id] = { ...(t.tajweedConfig[id] ?? { color: DEFAULT_RULE_COLORS[id]! }), enabled: true }; })
+                    )}
+                    disabled={isBuiltIn}>সব চালু</Button>
+                  <Button size="sm" variant="outline"
+                    onClick={() => !isBuiltIn && ALL_RULE_IDS.forEach(id =>
+                      applyChange(t => { t.tajweedConfig = t.tajweedConfig ?? {}; t.tajweedConfig[id] = { ...(t.tajweedConfig[id] ?? { color: DEFAULT_RULE_COLORS[id]! }), enabled: false }; })
+                    )}
+                    disabled={isBuiltIn}>সব বন্ধ</Button>
+                </div>
+              </div>
+
+              {/* 12 rule rows */}
+              <div className="space-y-2">
+                {ALL_RULE_IDS.map((id) => {
+                  const ruleCfg = activeTemplate.tajweedConfig?.[id];
+                  const isOn = ruleCfg?.enabled ?? (id === 1 || id === 9);
+                  const color = ruleCfg?.color ?? DEFAULT_RULE_COLORS[id]!;
+                  return (
+                    <div key={id} className="flex items-center gap-3">
+                      {/* Enable toggle */}
+                      <Switch
+                        checked={isOn}
+                        onCheckedChange={(on) => applyChange(t => {
+                          t.tajweedConfig = t.tajweedConfig ?? {};
+                          t.tajweedConfig[id] = { ...(t.tajweedConfig[id] ?? { color }), enabled: on };
+                        })}
+                        disabled={isBuiltIn}
+                      />
+                      {/* Rule name */}
+                      <span className="flex-1 text-xs" style={{ color: isOn ? color : "#6b7280" }}>
+                        {id}. {TAJWEED_RULE_NAMES[id]}
+                      </span>
+                      {/* Color picker */}
+                      <input
+                        type="color"
+                        value={color}
+                        onChange={(e) => applyChange(t => {
+                          t.tajweedConfig = t.tajweedConfig ?? {};
+                          t.tajweedConfig[id] = { ...(t.tajweedConfig[id] ?? { enabled: isOn }), color: e.target.value };
+                        })}
+                        disabled={isBuiltIn || !isOn}
+                        className="h-7 w-8 rounded cursor-pointer border border-slate-300 disabled:opacity-40 disabled:cursor-default p-0.5"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="bg-slate-50/50 border-b pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <BookOpen className="h-5 w-5 text-emerald-600" />
+                অর্থ ও উচ্চারণ
+              </CardTitle>
+              <CardDescription>আরবির নিচে বাংলা অনুবাদ ও উচ্চারণ লেয়ার</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-6">
+              {/* Pronunciation toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>বাংলা উচ্চারণ দেখাও</Label>
+                  <p className="text-xs text-slate-400">verses.json "bn" ফিল্ড থেকে</p>
+                </div>
+                <Switch
+                  checked={activeTemplate.meaningConfig?.showPronunciation ?? false}
+                  onCheckedChange={(on) => applyChange(t => {
+                    t.meaningConfig = { ...(t.meaningConfig ?? defaultMeaningConfig), showPronunciation: on, pronunciationRatio: on ? 0.18 : 0.0 };
+                  })}
+                  disabled={isBuiltIn}
+                />
+              </div>
+              {(activeTemplate.meaningConfig?.showPronunciation) && (
+                <div className="grid grid-cols-2 gap-3 pl-4 border-l-2 border-slate-200">
+                  <div>
+                    <Label className="text-xs">ফন্ট সাইজ (px)</Label>
+                    <Input type="number" min={8} max={24}
+                      value={activeTemplate.meaningConfig?.pronunciationFontPx ?? 14}
+                      onChange={(e) => applyChange(t => { t.meaningConfig!.pronunciationFontPx = +e.target.value; })}
+                      disabled={isBuiltIn} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">ব্যান্ড অনুপাত (0–0.25)</Label>
+                    <Input type="number" min={0.05} max={0.25} step={0.01}
+                      value={activeTemplate.meaningConfig?.pronunciationRatio ?? 0.18}
+                      onChange={(e) => applyChange(t => { t.meaningConfig!.pronunciationRatio = +e.target.value; })}
+                      disabled={isBuiltIn} />
+                  </div>
+                </div>
+              )}
+
+              {/* Meaning toggle */}
+              <div className="flex items-center justify-between pt-2">
+                <div>
+                  <Label>বাংলা অর্থ দেখাও</Label>
+                  <p className="text-xs text-slate-400">verses.json "t_bn" ফিল্ড থেকে</p>
+                </div>
+                <Switch
+                  checked={activeTemplate.meaningConfig?.showMeaning ?? false}
+                  onCheckedChange={(on) => applyChange(t => {
+                    t.meaningConfig = { ...(t.meaningConfig ?? defaultMeaningConfig), showMeaning: on, meaningRatio: on ? 0.15 : 0.0 };
+                  })}
+                  disabled={isBuiltIn}
+                />
+              </div>
+              {(activeTemplate.meaningConfig?.showMeaning) && (
+                <div className="grid grid-cols-2 gap-3 pl-4 border-l-2 border-slate-200">
+                  <div>
+                    <Label className="text-xs">ফন্ট সাইজ (px)</Label>
+                    <Input type="number" min={8} max={20}
+                      value={activeTemplate.meaningConfig?.meaningFontPx ?? 12}
+                      onChange={(e) => applyChange(t => { t.meaningConfig!.meaningFontPx = +e.target.value; })}
+                      disabled={isBuiltIn} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">ব্যান্ড অনুপাত (0–0.2)</Label>
+                    <Input type="number" min={0.05} max={0.2} step={0.01}
+                      value={activeTemplate.meaningConfig?.meaningRatio ?? 0.15}
+                      onChange={(e) => applyChange(t => { t.meaningConfig!.meaningRatio = +e.target.value; })}
+                      disabled={isBuiltIn} />
+                  </div>
+                </div>
+              )}
+
+              {/* Warning banner when both are enabled */}
+              {(activeTemplate.meaningConfig?.showPronunciation && activeTemplate.meaningConfig?.showMeaning) && (
+                <div className="rounded bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700">
+                  উচ্চারণ + অর্থ একসাথে চালু থাকলে পৃষ্ঠায় লাইন সংখ্যা স্বয়ংক্রিয়ভাবে কমতে পারে।
+                  Band ratios যোগফল 1.0 ছাড়িয়ে গেলে Arabic অংশ সংকুচিত হবে।
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
